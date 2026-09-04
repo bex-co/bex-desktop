@@ -963,11 +963,17 @@ impl Client {
         credentials: &Credentials,
         cx: &AsyncApp,
     ) -> Result<bool> {
-        match self
-            .cloud_client
-            .validate_credentials(credentials.user_id as u32, &credentials.access_token)
-            .await
-        {
+        // bex white-label: validate the persisted token against bex's OIDC
+        // provider (Hydra `userinfo`), not Zed's Cloud API — bex is the identity
+        // authority here. See the `bex_auth` crate.
+        let http: Arc<dyn http_client::HttpClient> = self.http.clone();
+        let server_url = cx.update(|cx| ClientSettings::get_global(cx).server_url.clone());
+        let result = async {
+            let config = bex_auth::OidcConfig::from_env(&server_url)?;
+            bex_auth::validate_token(http, &config, &credentials.access_token).await
+        }
+        .await;
+        match result {
             Ok(valid) => Ok(valid),
             Err(err) => {
                 self.set_status(Status::AuthenticationError, cx);

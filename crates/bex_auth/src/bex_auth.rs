@@ -177,10 +177,41 @@ where
     bail!("device sign-in timed out before it was approved")
 }
 
+/// Validate an access token against the provider's `userinfo` endpoint.
+///
+/// Used to check a persisted credential without re-running the browser flow:
+/// `200` means the token is live, `401`/`403` means it is not. Any other status
+/// is a transport/transient failure and surfaces as an error so the caller can
+/// tell "signed out" apart from "couldn't reach the IdP".
+pub async fn validate_token(
+    http: Arc<dyn HttpClient>,
+    config: &OidcConfig,
+    access_token: &str,
+) -> Result<bool> {
+    let metadata = discover(&http, &config.issuer).await?;
+    let userinfo = metadata.userinfo_endpoint.unwrap_or_else(|| {
+        format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/'))
+    });
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(&userinfo)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("Accept", "application/json")
+        .body(AsyncBody::default())?;
+    let response = http.send(request).await.context("userinfo request failed")?;
+    match response.status().as_u16() {
+        200..=299 => Ok(true),
+        401 | 403 => Ok(false),
+        other => bail!("userinfo returned unexpected status {other}"),
+    }
+}
+
 #[derive(Deserialize)]
 struct ProviderMetadata {
     device_authorization_endpoint: String,
     token_endpoint: String,
+    #[serde(default)]
+    userinfo_endpoint: Option<String>,
 }
 
 #[derive(Deserialize)]
