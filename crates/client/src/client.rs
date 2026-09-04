@@ -1264,7 +1264,11 @@ impl Client {
             return callback(cx);
         }
 
-        self.authenticate_with_browser(cx)
+        // bex white-label: sign in via OIDC (Authorization Code + PKCE) against
+        // the configured provider instead of Zed's proprietary
+        // `native_app_signin` handshake. `authenticate_with_browser` is kept for
+        // reference / upstream parity.
+        self.authenticate_with_oidc(cx)
     }
 
     fn establish_connection(
@@ -1549,6 +1553,74 @@ impl Client {
                     Ok(Credentials {
                         user_id: user_id.parse()?,
                         access_token,
+                    })
+                })
+                .await?;
+
+            cx.update(|cx| cx.activate(true));
+            Ok(credentials)
+        })
+    }
+
+    /// bex sign-in: OAuth 2.0 Device Authorization Grant against bex's Ory Hydra
+    /// (issuer defaults to the `oauth.` subdomain of `server_url`). The flow
+    /// lives in the `bex_auth` crate; this method only bridges gpui's threading
+    /// (open the verification URL on the main thread, run the flow — including
+    /// the poll timer — in the background) and preserves the admin-impersonation
+    /// shortcut used in development.
+    pub fn authenticate_with_oidc(self: &Arc<Self>, cx: &AsyncApp) -> Task<Result<Credentials>> {
+        let http_admin = self.http.clone();
+        let http: Arc<dyn http_client::HttpClient> = self.http.clone();
+        let this = self.clone();
+        cx.spawn(async move |cx| {
+            let server_url = cx.update(|cx| ClientSettings::get_global(cx).server_url.clone());
+            let background = cx.background_executor().clone();
+            let timer = background.clone();
+
+            let (open_url_tx, open_url_rx) = oneshot::channel::<String>();
+            cx.update(|cx| {
+                cx.spawn(async move |cx| {
+                    if let Ok(url) = open_url_rx.await {
+                        cx.update(|cx| cx.open_url(&url));
+                    }
+                })
+                .detach();
+            });
+
+            let credentials = background
+                .spawn(async move {
+                    if let Some((login, token)) =
+                        IMPERSONATE_LOGIN.as_ref().zip(ADMIN_API_TOKEN.as_ref())
+                    {
+                        if !*USE_WEB_LOGIN {
+                            return this
+                                .authenticate_as_admin(http_admin, login.clone(), token.clone())
+                                .await;
+                        }
+                    }
+
+                    let config = bex_auth::OidcConfig::from_env(&server_url)?;
+                    let tokens = bex_auth::authenticate(
+                        http,
+                        config,
+                        move |prompt: &bex_auth::DevicePrompt| {
+                            let url = prompt
+                                .verification_uri_complete
+                                .clone()
+                                .unwrap_or_else(|| prompt.verification_uri.clone());
+                            log::info!(
+                                "bex sign-in: open {} and enter code {}",
+                                prompt.verification_uri,
+                                prompt.user_code
+                            );
+                            open_url_tx.send(url).ok();
+                        },
+                        move |duration| timer.timer(duration),
+                    )
+                    .await?;
+                    anyhow::Ok(Credentials {
+                        user_id: tokens.user_id,
+                        access_token: tokens.access_token,
                     })
                 })
                 .await?;

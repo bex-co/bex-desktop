@@ -2155,6 +2155,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "bex_auth"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "base64 0.22.1",
+ "futures 0.3.32",
+ "http_client",
+ "serde",
+ "serde_json",
+ "sha2",
+ "url",
+]
+
+[[package]]
 name = "bigdecimal"
 version = "0.4.8"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3122,6 +3136,7 @@ dependencies = [
  "anyhow",
  "async-channel 2.5.0",
  "async-tungstenite",
+ "bex_auth",
  "chrono",
  "clock",
  "cloud_api_client",

@@ -21,6 +21,7 @@ members = [
     "crates/aws_http_client",
     "crates/bedrock",
     "crates/benchmarks",
+    "crates/bex_auth",
     "crates/breadcrumbs",
     "crates/buffer_diff",
     "crates/call",
@@ -294,6 +295,7 @@ auto_update = { path = "crates/auto_update" }
 auto_update_ui = { path = "crates/auto_update_ui" }
 aws_http_client = { path = "crates/aws_http_client" }
 bedrock = { path = "crates/bedrock" }
+bex_auth = { path = "crates/bex_auth" }
 breadcrumbs = { path = "crates/breadcrumbs" }
 buffer_diff = { path = "crates/buffer_diff" }
 call = { path = "crates/call" }
