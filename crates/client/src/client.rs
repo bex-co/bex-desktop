@@ -663,6 +663,16 @@ impl Client {
             .map(|credentials| credentials.user_id)
     }
 
+    /// The current access token, if signed in. bex white-label: used to fetch
+    /// the signed-in user's profile from bex's OIDC `userinfo`.
+    pub fn access_token(&self) -> Option<String> {
+        self.state
+            .read()
+            .credentials
+            .as_ref()
+            .map(|credentials| credentials.access_token.clone())
+    }
+
     pub fn peer_id(&self) -> Option<PeerId> {
         if let Status::Connected { peer_id, .. } = &*self.status().borrow() {
             Some(*peer_id)
@@ -966,6 +976,7 @@ impl Client {
         // bex white-label: validate the persisted token against bex's OIDC
         // provider (Hydra `userinfo`), not Zed's Cloud API — bex is the identity
         // authority here. See the `bex_auth` crate.
+        log::info!("validate_credentials: validating stored token against bex userinfo");
         let http: Arc<dyn http_client::HttpClient> = self.http.clone();
         let server_url = cx.update(|cx| ClientSettings::get_global(cx).server_url.clone());
         let result = async {
@@ -1580,6 +1591,7 @@ impl Client {
         let this = self.clone();
         cx.spawn(async move |cx| {
             let server_url = cx.update(|cx| ClientSettings::get_global(cx).server_url.clone());
+            log::info!("authenticate_with_oidc: starting device flow (server_url={server_url})");
             let background = cx.background_executor().clone();
             let timer = background.clone();
 

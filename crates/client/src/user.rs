@@ -21,6 +21,7 @@ use gpui::{
 use http_client::http::{HeaderMap, HeaderValue};
 use postage::{sink::Sink, watch};
 use rpc::proto::{RequestMessage, UsersResponse};
+use settings::Settings as _;
 use std::{
     str::FromStr as _,
     sync::{Arc, Weak},
@@ -226,45 +227,41 @@ impl UserStore {
                         | Status::Reauthenticated
                         | Status::Connected { .. } => {
                             if let Some(user_id) = client.user_id() {
-                                let system_id =
-                                    client.telemetry().system_id().map(|id| id.to_string());
-                                let response = client
-                                    .cloud_client()
-                                    .get_authenticated_user(system_id)
+                                // bex white-label: build the signed-in user from
+                                // bex's OIDC `userinfo`, not Zed's Cloud API.
+                                let server_url = cx.update(|cx| {
+                                    crate::ClientSettings::get_global(cx).server_url.clone()
+                                });
+                                let user = if let Some(access_token) = client.access_token() {
+                                    let http: Arc<dyn http_client::HttpClient> =
+                                        client.http_client();
+                                    async {
+                                        let config = bex_auth::OidcConfig::from_env(&server_url)?;
+                                        bex_auth::fetch_user(http, &config, &access_token).await
+                                    }
                                     .await
-                                    .log_err();
-
-                                let current_user_and_response = if let Some(response) = response {
-                                    let user = Arc::new(User {
-                                        legacy_id: user_id,
-                                        username: response.user.username.clone().into(),
-                                        avatar_uri: response.user.avatar_url.clone().into(),
-                                        name: response.user.name.clone(),
-                                    });
-
-                                    Some((user, response))
+                                    .log_err()
+                                    .map(|profile| {
+                                        Arc::new(User {
+                                            legacy_id: user_id,
+                                            username: profile.username.into(),
+                                            avatar_uri: profile.avatar_url.into(),
+                                            name: profile.name,
+                                        })
+                                    })
                                 } else {
                                     None
                                 };
-                                current_user_tx
-                                    .send(
-                                        current_user_and_response
-                                            .as_ref()
-                                            .map(|(user, _)| user.clone()),
-                                    )
-                                    .await
-                                    .ok();
 
-                                cx.update(|cx| {
-                                    if let Some((user, response)) = current_user_and_response {
-                                        this.update(cx, |this, cx| {
+                                current_user_tx.send(user.clone()).await.ok();
+
+                                if let Some(user) = user {
+                                    cx.update(|cx| {
+                                        this.update(cx, |this, _cx| {
                                             this.users.insert(user_id, user);
-                                            this.update_authenticated_user(response, cx)
                                         })
-                                    } else {
-                                        anyhow::Ok(())
-                                    }
-                                })?;
+                                    })?;
+                                }
 
                                 this.update(cx, |_, cx| cx.notify())?;
                             }

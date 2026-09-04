@@ -123,7 +123,12 @@ where
     Sleep: Fn(Duration) -> SleepFut,
     SleepFut: Future<Output = ()>,
 {
+    log::info!("bex_auth: discovering issuer {}", config.issuer);
     let metadata = discover(&http, &config.issuer).await?;
+    log::info!(
+        "bex_auth: device_authorization_endpoint = {}",
+        metadata.device_authorization_endpoint
+    );
 
     let device: DeviceAuthorizationResponse = post_form(
         &http,
@@ -135,6 +140,7 @@ where
     )
     .await
     .context("device authorization request failed")?;
+    log::info!("bex_auth: received device code, prompting user");
 
     prompt(&DevicePrompt {
         user_code: device.user_code.clone(),
@@ -188,6 +194,7 @@ pub async fn validate_token(
     config: &OidcConfig,
     access_token: &str,
 ) -> Result<bool> {
+    log::info!("bex_auth: validating token against {} userinfo", config.issuer);
     let metadata = discover(&http, &config.issuer).await?;
     let userinfo = metadata.userinfo_endpoint.unwrap_or_else(|| {
         format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/'))
@@ -204,6 +211,76 @@ pub async fn validate_token(
         401 | 403 => Ok(false),
         other => bail!("userinfo returned unexpected status {other}"),
     }
+}
+
+/// The signed-in user's profile, read from the provider's `userinfo` claims.
+pub struct UserProfile {
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_url: String,
+}
+
+/// Fetch the signed-in user's profile from the provider's `userinfo` endpoint.
+pub async fn fetch_user(
+    http: Arc<dyn HttpClient>,
+    config: &OidcConfig,
+    access_token: &str,
+) -> Result<UserProfile> {
+    let metadata = discover(&http, &config.issuer).await?;
+    let userinfo = metadata.userinfo_endpoint.unwrap_or_else(|| {
+        format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/'))
+    });
+    let request = Request::builder()
+        .method(Method::GET)
+        .uri(&userinfo)
+        .header("Authorization", format!("Bearer {access_token}"))
+        .header("Accept", "application/json")
+        .body(AsyncBody::default())?;
+    let mut response = http.send(request).await.context("userinfo request failed")?;
+    let mut body = String::new();
+    response.body_mut().read_to_string(&mut body).await?;
+    if !response.status().is_success() {
+        bail!(
+            "userinfo request failed with status {}: {body}",
+            response.status()
+        );
+    }
+    let claims: UserInfoClaims =
+        serde_json::from_str(&body).context("failed to parse userinfo claims")?;
+    let email = claims.email.clone();
+    let username = claims
+        .preferred_username
+        .or(claims.email)
+        .or(claims.sub)
+        .unwrap_or_else(|| "bex-user".to_string());
+    // bex's Hydra `userinfo` has no `picture` claim, so fall back to a
+    // deterministic Gravatar identicon keyed on the email (or username). Keeps
+    // the signed-in UI from trying to load an empty avatar URL.
+    let avatar_url = claims.picture.filter(|p| !p.is_empty()).unwrap_or_else(|| {
+        let key = email.unwrap_or_else(|| username.clone()).to_lowercase();
+        let digest = Sha256::digest(key.as_bytes());
+        let hex: String = digest.iter().map(|byte| format!("{byte:02x}")).collect();
+        format!("https://www.gravatar.com/avatar/{hex}?d=identicon&s=128")
+    });
+    Ok(UserProfile {
+        username,
+        name: claims.name,
+        avatar_url,
+    })
+}
+
+#[derive(Deserialize)]
+struct UserInfoClaims {
+    #[serde(default)]
+    sub: Option<String>,
+    #[serde(default)]
+    preferred_username: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    picture: Option<String>,
 }
 
 #[derive(Deserialize)]
