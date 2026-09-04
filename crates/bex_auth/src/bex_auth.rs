@@ -1,20 +1,26 @@
 //! bex sign-in via OpenID Connect.
 //!
-//! bex's identity plane is Ory Hydra (OAuth2/OIDC) + Kratos (accounts), and its
-//! first-party desktop/CLI clients authenticate with the **OAuth 2.0 Device
-//! Authorization Grant** (RFC 8628) using a pre-registered, secretless public
-//! client. This module drives that same flow so the editor signs in against the
-//! real bex IdP with no backend changes:
+//! bex's identity plane is Ory Hydra (OAuth2/OIDC) + Kratos (accounts). The
+//! editor is a desktop GUI app, so it uses the standard native-app flow —
+//! OAuth 2.0 Authorization Code + PKCE (RFC 7636) with an RFC 8252 loopback
+//! redirect — not the device grant (that is for browserless / input-constrained
+//! surfaces like the CLI). The user approves in the browser and is redirected
+//! straight back to a loopback listener; with the first-party client's
+//! `skip_consent`, an already-signed-in browser session lands back with no
+//! extra clicks.
 //!
+//! The flow, entirely client-side:
 //! 1. Discover endpoints from `{issuer}/.well-known/openid-configuration`.
-//! 2. POST the device authorization request → `user_code` + `verification_uri`.
-//! 3. Send the user to the verification URL (browser) to approve.
-//! 4. Poll the token endpoint until approval → OIDC tokens.
-//! 5. Derive a stable numeric user id from the `id_token`.
+//! 2. Generate a PKCE verifier/challenge and an anti-CSRF `state`.
+//! 3. Start a loopback callback server ([`oauth_callback_server`]).
+//! 4. Open the browser to the authorization endpoint.
+//! 5. Receive the `code` on the loopback redirect, verifying `state`.
+//! 6. Exchange the `code` (+ PKCE verifier) at the token endpoint for tokens.
+//! 7. Derive a stable numeric user id from the returned `id_token`.
 //!
-//! Defaults target bex (issuer `oauth.bex.co`, the seeded public CLI client);
-//! all three knobs are overridable via `BEX_OIDC_ISSUER`, `BEX_OIDC_CLIENT_ID`,
-//! and `BEX_OIDC_SCOPES`.
+//! Defaults target bex (issuer `oauth.bex.co`, the first-party `bex-desktop`
+//! client); all overridable via `BEX_OIDC_ISSUER`, `BEX_OIDC_CLIENT_ID`,
+//! `BEX_OIDC_SCOPES`.
 
 use anyhow::{Context as _, Result, bail};
 use base64::prelude::*;
@@ -23,14 +29,15 @@ use http_client::{
     AsyncBody, HttpClient,
     http::{Method, Request},
 };
-use serde::{Deserialize, de::DeserializeOwned};
+use oauth_callback_server::start_oauth_callback_server;
+use rand::RngCore as _;
+use serde::Deserialize;
 use sha2::{Digest as _, Sha256};
-use std::{future::Future, sync::Arc, time::Duration};
+use std::sync::Arc;
 use url::Url;
 
-/// The seeded, secretless public client bex registers for its desktop/editor
-/// surface (device grant, same scopes as the CLI but a distinct client so token
-/// audience, telemetry, and revocation are decoupled). Seeded by
+/// The first-party public client bex registers for the desktop/editor surface
+/// (Authorization Code + PKCE, loopback redirect). Seeded by
 /// `scripts/auth-bootstrap-client.sh` in the bex platform repo.
 const DEFAULT_CLIENT_ID: &str = "bex-desktop";
 
@@ -39,7 +46,7 @@ pub struct OidcConfig {
     /// The OIDC issuer (e.g. `https://oauth.bex.co`). Discovery reads
     /// `{issuer}/.well-known/openid-configuration`.
     pub issuer: Url,
-    /// The public OAuth client id. The device grant needs no client secret.
+    /// The public OAuth client id. PKCE means no client secret is required.
     pub client_id: String,
     /// Requested scopes. Must include `openid` for an `id_token`; include
     /// `offline_access` for a refresh token.
@@ -89,18 +96,9 @@ fn default_issuer(server_url: &str) -> String {
     "https://oauth.bex.co".to_string()
 }
 
-/// What to show the user so they can approve the device on another surface.
-pub struct DevicePrompt {
-    pub user_code: String,
-    pub verification_uri: String,
-    /// A verification URL with the `user_code` pre-filled, when the provider
-    /// supplies one — open this to spare the user typing the code.
-    pub verification_uri_complete: Option<String>,
-}
-
 /// Tokens obtained from a successful sign-in.
 pub struct AuthTokens {
-    /// Numeric user id derived from the `id_token`.
+    /// Numeric user id derived from the `id_token` claims.
     pub user_id: u64,
     /// The provider access token — the session credential against the backend.
     pub access_token: String,
@@ -108,87 +106,87 @@ pub struct AuthTokens {
     pub refresh_token: Option<String>,
 }
 
-/// Run the Device Authorization Grant.
+/// The signed-in user's profile, read from the provider's `userinfo` claims.
+pub struct UserProfile {
+    pub username: String,
+    pub name: Option<String>,
+    pub avatar_url: String,
+}
+
+/// Run the Authorization Code + PKCE sign-in flow.
 ///
-/// `prompt` is invoked once with the verification URL / user code so the caller
-/// can open the browser and/or display the code. `sleep` yields for the given
-/// duration between token polls (pass the host's async timer).
-pub async fn authenticate<Sleep, SleepFut>(
+/// `open_url` is invoked with the authorization URL; the caller opens it in the
+/// user's browser (which, in gpui, must happen on the main thread). The returned
+/// future resolves once the browser redirects the `code` back to the loopback
+/// listener and it is exchanged for tokens.
+pub async fn authenticate(
     http: Arc<dyn HttpClient>,
     config: OidcConfig,
-    prompt: impl FnOnce(&DevicePrompt),
-    sleep: Sleep,
-) -> Result<AuthTokens>
-where
-    Sleep: Fn(Duration) -> SleepFut,
-    SleepFut: Future<Output = ()>,
-{
+    open_url: impl FnOnce(String),
+) -> Result<AuthTokens> {
     log::info!("bex_auth: discovering issuer {}", config.issuer);
     let metadata = discover(&http, &config.issuer).await?;
-    log::info!(
-        "bex_auth: device_authorization_endpoint = {}",
-        metadata.device_authorization_endpoint
-    );
 
-    let device: DeviceAuthorizationResponse = post_form(
-        &http,
-        &metadata.device_authorization_endpoint,
-        &[
-            ("client_id", config.client_id.as_str()),
-            ("scope", &config.scopes.join(" ")),
-        ],
-    )
-    .await
-    .context("device authorization request failed")?;
-    log::info!("bex_auth: received device code, prompting user");
+    let code_verifier = random_token();
+    let code_challenge = pkce_challenge(&code_verifier);
+    let state = random_token();
 
-    prompt(&DevicePrompt {
-        user_code: device.user_code.clone(),
-        verification_uri: device.verification_uri.clone(),
-        verification_uri_complete: device.verification_uri_complete.clone(),
-    });
+    let (redirect_uri, callback) =
+        start_oauth_callback_server().context("failed to start the OAuth callback server")?;
 
-    let mut interval = Duration::from_secs(device.interval.unwrap_or(5).max(1));
-    // Bound the wait to the device code's lifetime (default 10 min), plus a
-    // couple of extra polls of slack.
-    let expires_in = device.expires_in.unwrap_or(600);
-    let max_polls = expires_in / interval.as_secs().max(1) + 2;
+    let mut authorization_url =
+        Url::parse(&metadata.authorization_endpoint).context("invalid authorization_endpoint")?;
+    authorization_url
+        .query_pairs_mut()
+        .append_pair("response_type", "code")
+        .append_pair("client_id", &config.client_id)
+        .append_pair("redirect_uri", &redirect_uri)
+        .append_pair("scope", &config.scopes.join(" "))
+        .append_pair("state", &state)
+        .append_pair("code_challenge", &code_challenge)
+        .append_pair("code_challenge_method", "S256");
 
-    for _ in 0..max_polls {
-        sleep(interval).await;
-        match poll_token(
-            &http,
-            &metadata.token_endpoint,
-            &config.client_id,
-            &device.device_code,
-        )
-        .await?
-        {
-            PollOutcome::Tokens(tokens) => {
-                let id_token = tokens
-                    .id_token
-                    .as_deref()
-                    .context("token response is missing an id_token; request the `openid` scope")?;
-                return Ok(AuthTokens {
-                    user_id: user_id_from_id_token(id_token)?,
-                    access_token: tokens.access_token,
-                    refresh_token: tokens.refresh_token,
-                });
-            }
-            PollOutcome::Pending => {}
-            PollOutcome::SlowDown => interval += Duration::from_secs(5),
-        }
+    log::info!("bex_auth: opening browser to authorize (redirect {redirect_uri})");
+    open_url(authorization_url.to_string());
+
+    let params = callback
+        .await
+        .context("OAuth callback channel closed before a redirect was received")?
+        .context("OAuth authorization failed")?;
+
+    // `state` is a fresh high-entropy value from this flow; a plain compare is
+    // sufficient (it is never persisted or attacker-chosen).
+    if params.state != state {
+        bail!("OAuth state mismatch; possible CSRF — aborting sign-in");
     }
 
-    bail!("device sign-in timed out before it was approved")
+    let tokens = exchange_code(
+        &http,
+        &metadata.token_endpoint,
+        &config.client_id,
+        &redirect_uri,
+        &params.code,
+        &code_verifier,
+    )
+    .await?;
+
+    let id_token = tokens
+        .id_token
+        .as_deref()
+        .context("token response is missing an id_token; request the `openid` scope")?;
+    Ok(AuthTokens {
+        user_id: user_id_from_id_token(id_token)?,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+    })
 }
 
 /// Validate an access token against the provider's `userinfo` endpoint.
 ///
-/// Used to check a persisted credential without re-running the browser flow:
-/// `200` means the token is live, `401`/`403` means it is not. Any other status
-/// is a transport/transient failure and surfaces as an error so the caller can
-/// tell "signed out" apart from "couldn't reach the IdP".
+/// Checks a persisted credential without re-running the browser flow: `200`
+/// means the token is live, `401`/`403` means it is not. Any other status is a
+/// transport/transient failure and surfaces as an error so the caller can tell
+/// "signed out" apart from "couldn't reach the IdP".
 pub async fn validate_token(
     http: Arc<dyn HttpClient>,
     config: &OidcConfig,
@@ -211,13 +209,6 @@ pub async fn validate_token(
         401 | 403 => Ok(false),
         other => bail!("userinfo returned unexpected status {other}"),
     }
-}
-
-/// The signed-in user's profile, read from the provider's `userinfo` claims.
-pub struct UserProfile {
-    pub username: String,
-    pub name: Option<String>,
-    pub avatar_url: String,
 }
 
 /// Fetch the signed-in user's profile from the provider's `userinfo` endpoint.
@@ -270,38 +261,11 @@ pub async fn fetch_user(
 }
 
 #[derive(Deserialize)]
-struct UserInfoClaims {
-    #[serde(default)]
-    sub: Option<String>,
-    #[serde(default)]
-    preferred_username: Option<String>,
-    #[serde(default)]
-    email: Option<String>,
-    #[serde(default)]
-    name: Option<String>,
-    #[serde(default)]
-    picture: Option<String>,
-}
-
-#[derive(Deserialize)]
 struct ProviderMetadata {
-    device_authorization_endpoint: String,
+    authorization_endpoint: String,
     token_endpoint: String,
     #[serde(default)]
     userinfo_endpoint: Option<String>,
-}
-
-#[derive(Deserialize)]
-struct DeviceAuthorizationResponse {
-    device_code: String,
-    user_code: String,
-    verification_uri: String,
-    #[serde(default)]
-    verification_uri_complete: Option<String>,
-    #[serde(default)]
-    expires_in: Option<u64>,
-    #[serde(default)]
-    interval: Option<u64>,
 }
 
 #[derive(Deserialize)]
@@ -314,14 +278,17 @@ struct TokenResponse {
 }
 
 #[derive(Deserialize)]
-struct TokenErrorResponse {
-    error: String,
-}
-
-enum PollOutcome {
-    Tokens(TokenResponse),
-    Pending,
-    SlowDown,
+struct UserInfoClaims {
+    #[serde(default)]
+    sub: Option<String>,
+    #[serde(default)]
+    preferred_username: Option<String>,
+    #[serde(default)]
+    email: Option<String>,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(default)]
+    picture: Option<String>,
 }
 
 async fn discover(http: &Arc<dyn HttpClient>, issuer: &Url) -> Result<ProviderMetadata> {
@@ -350,22 +317,22 @@ async fn discover(http: &Arc<dyn HttpClient>, issuer: &Url) -> Result<ProviderMe
     serde_json::from_str(&body).context("failed to parse the OIDC discovery document")
 }
 
-/// Poll the token endpoint once with the device grant, mapping the RFC 8628
-/// pending/slow-down signals to control flow.
-async fn poll_token(
+async fn exchange_code(
     http: &Arc<dyn HttpClient>,
     token_endpoint: &str,
     client_id: &str,
-    device_code: &str,
-) -> Result<PollOutcome> {
-    let body = form(&[
-        (
-            "grant_type",
-            "urn:ietf:params:oauth:grant-type:device_code",
-        ),
-        ("device_code", device_code),
-        ("client_id", client_id),
-    ]);
+    redirect_uri: &str,
+    code: &str,
+    code_verifier: &str,
+) -> Result<TokenResponse> {
+    let body = url::form_urlencoded::Serializer::new(String::new())
+        .append_pair("grant_type", "authorization_code")
+        .append_pair("code", code)
+        .append_pair("redirect_uri", redirect_uri)
+        .append_pair("client_id", client_id)
+        .append_pair("code_verifier", code_verifier)
+        .finish();
+
     let request = Request::builder()
         .method(Method::POST)
         .uri(token_endpoint)
@@ -373,52 +340,16 @@ async fn poll_token(
         .header("Accept", "application/json")
         .body(AsyncBody::from(body.into_bytes()))?;
 
-    let mut response = http.send(request).await.context("token poll failed")?;
-    let mut text = String::new();
-    response.body_mut().read_to_string(&mut text).await?;
-
-    if response.status().is_success() {
-        let tokens = serde_json::from_str(&text).context("failed to parse the token response")?;
-        return Ok(PollOutcome::Tokens(tokens));
-    }
-
-    let error = serde_json::from_str::<TokenErrorResponse>(&text)
-        .map(|e| e.error)
-        .unwrap_or_else(|_| format!("HTTP {}: {text}", response.status()));
-    match error.as_str() {
-        "authorization_pending" => Ok(PollOutcome::Pending),
-        "slow_down" => Ok(PollOutcome::SlowDown),
-        "access_denied" => bail!("sign-in was denied"),
-        "expired_token" => bail!("the device code expired before it was approved"),
-        other => bail!("device token poll failed: {other}"),
-    }
-}
-
-async fn post_form<T: DeserializeOwned>(
-    http: &Arc<dyn HttpClient>,
-    endpoint: &str,
-    params: &[(&str, &str)],
-) -> Result<T> {
-    let request = Request::builder()
-        .method(Method::POST)
-        .uri(endpoint)
-        .header("Content-Type", "application/x-www-form-urlencoded")
-        .header("Accept", "application/json")
-        .body(AsyncBody::from(form(params).into_bytes()))?;
-
-    let mut response = http.send(request).await?;
-    let mut text = String::new();
-    response.body_mut().read_to_string(&mut text).await?;
+    let mut response = http.send(request).await.context("token request failed")?;
+    let mut body = String::new();
+    response.body_mut().read_to_string(&mut body).await?;
     if !response.status().is_success() {
-        bail!("request failed with status {}: {text}", response.status());
+        bail!(
+            "token request failed with status {}: {body}",
+            response.status()
+        );
     }
-    serde_json::from_str(&text).context("failed to parse response")
-}
-
-fn form(params: &[(&str, &str)]) -> String {
-    url::form_urlencoded::Serializer::new(String::new())
-        .extend_pairs(params.iter().copied())
-        .finish()
+    serde_json::from_str(&body).context("failed to parse the token response")
 }
 
 /// Derive the numeric user id from the id_token's claims.
@@ -439,7 +370,6 @@ fn user_id_from_id_token(id_token: &str) -> Result<u64> {
     let claims: serde_json::Value =
         serde_json::from_slice(&decoded).context("failed to parse id_token claims")?;
 
-    // Prefer an explicit numeric id if bex ever emits one.
     for key in ["user_id", "zed_user_id"] {
         match claims.get(key) {
             Some(serde_json::Value::Number(number)) => {
@@ -472,12 +402,51 @@ fn stable_u64(value: &str) -> u64 {
     u64::from_be_bytes(bytes) | 1
 }
 
+/// Generate a high-entropy URL-safe token, used both as the PKCE verifier
+/// (RFC 7636 §4.1 requires 43-128 unreserved characters — 32 random bytes
+/// base64url-encode to 43) and as the anti-CSRF `state`.
+fn random_token() -> String {
+    let mut bytes = [0u8; 32];
+    rand::rng().fill_bytes(&mut bytes);
+    BASE64_URL_SAFE_NO_PAD.encode(bytes)
+}
+
+/// Compute the S256 PKCE challenge from a verifier (RFC 7636 §4.2):
+/// `base64url(sha256(verifier))`, no padding.
+fn pkce_challenge(verifier: &str) -> String {
+    let digest = Sha256::digest(verifier.as_bytes());
+    BASE64_URL_SAFE_NO_PAD.encode(digest)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn id_token(payload: &[u8]) -> String {
         format!("aaa.{}.bbb", BASE64_URL_SAFE_NO_PAD.encode(payload))
+    }
+
+    #[test]
+    fn pkce_challenge_matches_rfc7636_appendix_b() {
+        // The worked example from RFC 7636, Appendix B.
+        let verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk";
+        assert_eq!(
+            pkce_challenge(verifier),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+        );
+    }
+
+    #[test]
+    fn random_token_is_pkce_length() {
+        // 32 bytes base64url (no pad) => 43 chars, within RFC 7636's 43-128 and
+        // well over Hydra's 8-char minimum for `state`.
+        let token = random_token();
+        assert_eq!(token.len(), 43);
+        assert!(
+            token
+                .chars()
+                .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+        );
     }
 
     #[test]
@@ -493,13 +462,6 @@ mod tests {
         let second = user_id_from_id_token(&token).unwrap();
         assert_eq!(first, second, "derivation must be deterministic");
         assert_ne!(first, 0);
-    }
-
-    #[test]
-    fn distinct_subjects_derive_distinct_ids() {
-        let a = user_id_from_id_token(&id_token(br#"{"sub":"alice"}"#)).unwrap();
-        let b = user_id_from_id_token(&id_token(br#"{"sub":"bob"}"#)).unwrap();
-        assert_ne!(a, b);
     }
 
     #[test]
