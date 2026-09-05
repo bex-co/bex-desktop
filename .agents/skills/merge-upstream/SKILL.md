@@ -9,22 +9,20 @@ bex-desktop is a fork of Zed with a small set of bex-specific commits carried on
 
 ## Remote layout — read this first
 
-The remote names are the opposite of what you might assume:
-
-- `origin` → `zed-industries/zed` — **upstream Zed. Never push here.**
-- `bex-desktop` → `bex-co/bex-desktop` — the fork. All pushes go here.
+- `origin` → `bex-co/bex-desktop` — the fork. All pushes go here.
+- `upstream` → `zed-industries/zed` — **upstream Zed. Never push here.**
 
 Verify with `git remote -v` before doing anything; do not assume this mapping holds forever.
 
-The local `main` branch mirrors upstream (`origin/main`) and carries no bex work. The bex commits live on the fork's `main` (`bex-desktop/main`) and on local working branches cut from it. The merge target is the branch that carries the bex commits — by default `bex-desktop/main` — **not** the local upstream-mirror `main`.
+The local `main` branch tracks the fork (`origin/main`) and carries the bex commits. Upstream Zed history lives on `upstream/main`, which has no local tracking branch. The merge target is the fork's `main` (`origin/main`, mirrored by local `main`) — you bring `upstream/main` *into* it, never the other way around.
 
 ## What is bex-specific
 
 Discover the current bex delta rather than trusting this list (it grows over time):
 
 ```
-git log --oneline origin/main..bex-desktop/main
-git diff --name-only origin/main...bex-desktop/main
+git log --oneline upstream/main..origin/main
+git diff --name-only upstream/main...origin/main
 ```
 
 As of this writing the delta is bex OIDC sign-in replacing Zed Cloud auth, plus the Muse Code agent:
@@ -43,22 +41,22 @@ As of this writing the delta is bex OIDC sign-in replacing Zed Cloud auth, plus 
 Require a clean worktree (`git status`). Fetch only what you need — this repo is large:
 
 ```
+git fetch upstream main
 git fetch origin main
-git fetch bex-desktop main
 ```
 
 Note the range you are about to merge:
 
 ```
-git rev-list --count bex-desktop/main..origin/main
-git log --oneline bex-desktop/main..origin/main | head -20
+git rev-list --count origin/main..upstream/main
+git log --oneline origin/main..upstream/main | head -20
 ```
 
 ### 2. Create the merge branch and merge
 
 ```
-git checkout -B merge-upstream-$(date +%Y-%m-%d) bex-desktop/main
-git merge origin/main --no-edit
+git checkout -B merge-upstream-$(date +%Y-%m-%d) origin/main
+git merge upstream/main --no-edit
 ```
 
 Use a merge, not a rebase: the fork's `main` is shared, and rewriting it would break everyone tracking it.
@@ -67,7 +65,7 @@ If the merge is clean, skip to Step 5.
 
 ### 3. Resolve conflicts
 
-General principle: **adopt upstream's new structure and behavior, then re-apply the bex divergence on top of it.** Read the bex commits first (`git log origin/main..bex-desktop/main` and `git show` each) so you understand what the fork intends before picking sides.
+General principle: **adopt upstream's new structure and behavior, then re-apply the bex divergence on top of it.** Read the bex commits first (`git log upstream/main..origin/main` and `git show` each) so you understand what the fork intends before picking sides.
 
 Per-file guidance:
 
@@ -94,13 +92,13 @@ Run `cargo test -p <crate>` for conflicted crates when reasonable, and `./script
 
 ### 5. Push and open the PR
 
-Push to the **fork**, never to `origin`:
+Push to the **fork** (`origin`), never to `upstream`:
 
 ```
-git push bex-desktop merge-upstream-<date>
+git push origin merge-upstream-<date>
 ```
 
-`gh` may default to `zed-industries/zed` because that is `origin` — always pass the repo explicitly:
+With `origin` now pointing at the fork, `gh` should target `bex-co/bex-desktop` by default — but pass the repo explicitly to be safe, since the `upstream` remote can confuse `gh`'s base-repo detection:
 
 ```
 gh pr create --repo bex-co/bex-desktop --base main \
@@ -113,7 +111,7 @@ The body should list the upstream range merged (`old..new` shas and commit count
 If the user asked to push directly instead of opening a PR, fast-forward the fork's main:
 
 ```
-git push bex-desktop merge-upstream-<date>:main
+git push origin merge-upstream-<date>:main
 ```
 
 ## Final report to the user
@@ -125,9 +123,9 @@ git push bex-desktop merge-upstream-<date>:main
 
 ## Gotchas
 
-- **`origin` is upstream, not the fork.** `git push origin` / bare `gh pr create` target `zed-industries/zed`. Every push and every `gh` call must name `bex-desktop` / `--repo bex-co/bex-desktop`.
-- **Local `main` is an upstream mirror.** Do not commit bex work (including this merge) to it.
-- **Fetch narrowly.** `git fetch origin` without a refspec pulls hundreds of upstream branches.
+- **`upstream` is Zed, not the fork.** `git push upstream` / a mis-detected `gh` base repo target `zed-industries/zed`. Push to `origin`, and pass `--repo bex-co/bex-desktop` to every `gh` call.
+- **Local `main` tracks the fork (`origin/main`).** Do the merge on a `merge-upstream-<date>` branch and land it via PR — don't commit the merge directly onto `main`.
+- **Fetch narrowly.** `git fetch upstream` without a refspec pulls hundreds of upstream branches.
 - **Never hand-merge `Cargo.lock`** — resolve `Cargo.toml`, then regenerate (Step 3).
 - **Non-interactive git**: use `--no-edit` on merge and `GIT_EDITOR=true` on any command that would open an editor.
 - **Keep the README marker.** Upstream README edits will conflict with the fork's `> [!IMPORTANT]` lines; the marker always stays on top.
