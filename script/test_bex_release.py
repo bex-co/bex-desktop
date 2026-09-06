@@ -31,6 +31,20 @@ class ReleaseTests(unittest.TestCase):
         self.assertEqual(release.asset_names("macos", "aarch64"), ("Zed-aarch64.dmg", "zed-remote-server-macos-aarch64.gz"))
         self.assertEqual(len(release.expected_assets()), 12)
 
+    def test_collects_linux_installer_from_bundle_output(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            previous = Path.cwd()
+            try:
+                os.chdir(temporary)
+                Path("target/release").mkdir(parents=True)
+                Path("target/release/zed-linux-x86_64.tar.gz").write_bytes(b"installer")
+                Path("target/zed-remote-server-linux-x86_64.gz").write_bytes(b"sidecar")
+                release.collect("linux", "x86_64")
+                self.assertEqual(Path("release-artifacts/zed-linux-x86_64.tar.gz").read_bytes(), b"installer")
+                self.assertEqual(Path("release-artifacts/zed-remote-server-linux-x86_64.gz").read_bytes(), b"sidecar")
+            finally:
+                os.chdir(previous)
+
     def test_requires_all_nonempty_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

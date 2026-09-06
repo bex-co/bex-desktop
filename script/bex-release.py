@@ -100,6 +100,8 @@ def collect(system, architecture):
     destination.mkdir(exist_ok=True)
     for index, name in enumerate(asset_names(system, architecture)):
         source = Path("target") / name
+        if system == "linux" and index == 0:
+            source = Path("target/release") / name
         if system == "macos" and index == 0:
             source = Path(f"target/{architecture}-apple-darwin/release") / name
             run("codesign", "--verify", "--verbose=2", str(source))
