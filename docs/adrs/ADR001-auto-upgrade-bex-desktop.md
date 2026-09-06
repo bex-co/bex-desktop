@@ -115,3 +115,84 @@ These accompany (not precede) the first release:
 2. **Static JSON manifest (GitHub Pages) instead of a feed service.** The contract requires resolving four query dimensions (`channel`, `asset`, `os`, `arch`) plus `latest`, and updating a static file per release re-introduces a publish step that can drift from the actual release. A stateless worker reading the GitHub API is barely more code and cannot drift. Rejected.
 3. **Clone Zed's full pipeline (preview/nightly trains, cherry-pick automation, blob store).** Built for a release cadence and team size we do not have; every extra workflow is merge-conflict surface against upstream. Rejected for v1; the branch-per-minor model is retained so `preview` can be added later without redesign.
 4. **Replace the updater with Sparkle/Squirrel/MSIX or add our own signature verification.** Any client-side change is permanent fork diff against an actively evolving upstream crate, and OS-level signing already provides execution-time integrity on the two platforms that enforce it. Rejected; revisit only if we outgrow the trust model.
+
+## Implementation and release operation
+
+The website implementation is in the separate `bex-co/eden-cms-v2` repository.
+It serves the asset feed, download redirects (including the WSL sandbox), release
+notes JSON, browser redirects to GitHub release notes, and
+`https://bex.co/oauth/client-metadata.json`. The GitHub repository and release
+assets must remain public; the feed and desktop downloads require no GitHub token.
+
+`cargo xtask workflows` generates `.github/workflows/bex_release.yml` from
+`tooling/xtask/src/tasks/workflows/bex_release.rs`. The workflow runs on `v*` tag
+pushes in `bex-co/bex-desktop`; a manual dispatch must select an existing release
+tag. Changes to the pipeline on main run its tests and verify generated workflow
+files without building or publishing a release. `script/bex-release.py` validates and publishes releases. The workflow:
+
+1. Requires `v<major>.<minor>.<patch>` to match `crates/zed/Cargo.toml`, point at
+   the checked-out commit, and belong to main's history. It refuses an already
+   published tag or a version older than any published stable release.
+2. Checks all signing configuration before starting the six builds.
+3. Builds macOS and Linux natively for each architecture, and cross-compiles both
+   Windows targets on Windows Server 2022. Release jobs set `RELEASE_CHANNEL` to
+   `stable` in the checkout; main's checked-in channel remains `dev`.
+4. Signs and notarizes macOS DMGs using bex's Developer ID, signs Windows binaries
+   and installers using Azure Trusted Signing, and collects two artifacts per
+   platform. The Windows toolchain is discovered with `vswhere` so GitHub's
+   Enterprise installation works as well as a local Community installation.
+5. Requires all 12 installer/sidecar artifacts, writes `SHA256SUMS`, uploads into
+   a draft release, checks uploaded names and sizes, then publishes it as latest.
+   A failed upload leaves a draft that can be retried; published assets are never
+   intentionally replaced. Release runs are serialized to prevent competing
+   versions from advancing the stable feed out of order.
+
+Configure these repository **secrets** before the first release:
+
+- `MACOS_CERTIFICATE`: base64-encoded Developer ID Application `.p12`.
+- `MACOS_CERTIFICATE_PASSWORD`: password for that `.p12`.
+- `APPLE_NOTARIZATION_KEY`: App Store Connect API private key text.
+- `APPLE_NOTARIZATION_KEY_ID` and `APPLE_NOTARIZATION_ISSUER_ID`.
+- `AZURE_SIGNING_TENANT_ID`, `AZURE_SIGNING_CLIENT_ID`, and
+  `AZURE_SIGNING_CLIENT_SECRET`: an identity authorized to sign with the bex
+  Azure signing certificate profile.
+
+Configure these repository **variables**:
+
+- `MACOS_SIGNING_IDENTITY`: full bex Developer ID Application identity from the
+  certificate. Keep this identity stable across releases. The upstream Zed
+  provisioning profile is omitted when using a custom signing identity; the
+  current entitlements require no provisioning profile.
+- `AZURE_SIGNING_ACCOUNT_NAME`, `AZURE_SIGNING_CERT_PROFILE_NAME`, and
+  `AZURE_SIGNING_ENDPOINT`.
+- `WINDOWS_SIGNING_PUBLISHER`: the exact certificate subject distinguished name
+  used by Azure signing. It is written into the AppX manifest, whose package name
+  is `BexCo.BexDesktop`, so the explorer extension can be signed and removed
+  independently of upstream Zed.
+
+After merging the intended changes to main, update the crate version for a new
+release, commit and push that change, then push the matching tag. For example,
+when the committed crate version is `1.20.0`:
+
+```sh
+git tag v1.20.0
+git push origin v1.20.0
+```
+
+Protect release tags against deletion and updates, and restrict their creation to
+release maintainers. Do not retag a failed release to different source: fix the
+problem on main and use a newer version. For a transient build/upload failure,
+rerun the workflow for the same unchanged tag while its release is still a draft.
+
+Validate pipeline changes with:
+
+```sh
+python3.12 -m unittest discover -s script -p test_bex_release.py
+cargo xtask workflows
+cargo xtask check-workflows
+./script/clippy -p xtask
+```
+
+The first signed release still needs a full platform build and installation/
+self-update smoke test. Workflow generation and publication tests do not prove
+that external signing credentials or the resulting native installers work.

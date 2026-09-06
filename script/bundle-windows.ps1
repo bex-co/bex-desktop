@@ -41,7 +41,11 @@ function Get-VSArch {
 }
 
 Push-Location
-& "C:\Program Files\Microsoft Visual Studio\2022\Community\Common7\Tools\Launch-VsDevShell.ps1" -Arch (Get-VSArch -Arch $Architecture) -HostArch (Get-VSArch -Arch $OSArchitecture)
+$visualStudioPath = & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath
+if (-not $visualStudioPath) {
+    throw "Visual Studio C++ build tools were not found"
+}
+& "$visualStudioPath\Common7\Tools\Launch-VsDevShell.ps1" -Arch (Get-VSArch -Arch $Architecture) -HostArch (Get-VSArch -Arch $OSArchitecture)
 Pop-Location
 
 $target = "$Architecture-pc-windows-msvc"
@@ -207,6 +211,13 @@ function MakeAppx {
         }
     }
     Copy-Item -Path "$manifestFile" -Destination "$innoDir\make_appx\AppxManifest.xml"
+    if ($env:WINDOWS_SIGNING_PUBLISHER) {
+        [xml]$manifest = Get-Content "$innoDir\make_appx\AppxManifest.xml"
+        $manifest.Package.Identity.Publisher = $env:WINDOWS_SIGNING_PUBLISHER
+        $manifest.Package.Identity.Name = "BexCo.BexDesktop"
+        $manifest.Package.Properties.PublisherDisplayName = "bex"
+        $manifest.Save("$innoDir\make_appx\AppxManifest.xml")
+    }
     # Add makeAppx.exe to Path
     $sdk = "C:\Program Files (x86)\Windows Kits\10\bin\10.0.26100.0\x64"
     $env:Path += ';' + $sdk
@@ -346,6 +357,10 @@ function BuildInstaller {
         "Version"        = "$env:RELEASE_VERSION"
         "SourceDir"      = "$env:ZED_WORKSPACE"
         "AppxFullName"   = $appAppxFullName
+    }
+
+    if ($env:WINDOWS_SIGNING_PUBLISHER) {
+        $definitions["BexAppxPackageName"] = "BexCo.BexDesktop"
     }
 
     $defs = @()

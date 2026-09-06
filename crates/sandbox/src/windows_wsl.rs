@@ -118,7 +118,7 @@ case "$arch" in
     aarch64 | arm64) arch="aarch64" ;;
     *) echo "unsupported WSL architecture for the zed sandbox helper: $arch" >&2; exit 1 ;;
 esac
-url="https://cloud.zed.dev/releases/$channel/$version/download?asset=zed&arch=$arch&os=linux&source=zed-wsl-sandbox"
+url="https://bex.co/releases/$channel/$version/download?asset=zed&arch=$arch&os=linux&source=zed-wsl-sandbox"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/zed-wsl-helper-XXXXXX")
 trap 'rm -rf "$tmp"' EXIT

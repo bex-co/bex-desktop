@@ -1,0 +1,427 @@
+# Generated from xtask::workflows::bex_release
+# Rebuild with `cargo xtask workflows`.
+name: bex_release
+env:
+  CARGO_INCREMENTAL: '0'
+  BEX_RELEASE_TAG: ${{ github.ref_name }}
+on:
+  push:
+    branches:
+    - main
+    paths:
+    - script/bex-release.py
+    - script/test_bex_release.py
+    - tooling/xtask/src/tasks/workflows/bex_release.rs
+    - .github/workflows/bex_release.yml
+    tags:
+    - v*
+  workflow_dispatch: {}
+permissions:
+  contents: read
+jobs:
+  checks:
+    name: Test release automation
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Test publication guards
+      run: python -m unittest discover -s script -p test_bex_release.py
+      shell: bash
+    - name: Verify generated workflows
+      run: |-
+        cargo xtask workflows
+        git diff --exit-code -- .github/workflows extensions/workflows
+        cargo xtask check-workflows
+      shell: bash
+    timeout-minutes: 20
+  validate:
+    needs:
+    - checks
+    if: github.repository == 'bex-co/bex-desktop' && startsWith(github.ref, 'refs/tags/v')
+    name: Validate release and signing configuration
+    runs-on: ubuntu-24.04
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Validate tag and version
+      run: python script/bex-release.py validate
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+    - name: Check signing credentials
+      run: python script/bex-release.py check-signing
+      shell: bash
+      env:
+        CARGO_INCREMENTAL: 0
+        ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+        ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+        MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+        MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+        APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
+        APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+        APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+        MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+        AZURE_TENANT_ID: ${{ secrets.AZURE_SIGNING_TENANT_ID }}
+        AZURE_CLIENT_ID: ${{ secrets.AZURE_SIGNING_CLIENT_ID }}
+        AZURE_CLIENT_SECRET: ${{ secrets.AZURE_SIGNING_CLIENT_SECRET }}
+        ACCOUNT_NAME: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+        CERT_PROFILE_NAME: ${{ vars.AZURE_SIGNING_CERT_PROFILE_NAME }}
+        ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+        WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+    timeout-minutes: 10
+  build_macos_aarch64:
+    needs:
+    - validate
+    name: build_macos_aarch64
+    runs-on: macos-15
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Bundle and notarize macOS
+      run: script/bundle-mac aarch64-apple-darwin
+      shell: bash
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect macos aarch64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-macos-aarch64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  build_macos_x86_64:
+    needs:
+    - validate
+    name: build_macos_x86_64
+    runs-on: macos-15-intel
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_NOTARIZATION_KEY: ${{ secrets.APPLE_NOTARIZATION_KEY }}
+      APPLE_NOTARIZATION_KEY_ID: ${{ secrets.APPLE_NOTARIZATION_KEY_ID }}
+      APPLE_NOTARIZATION_ISSUER_ID: ${{ secrets.APPLE_NOTARIZATION_ISSUER_ID }}
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Bundle and notarize macOS
+      run: script/bundle-mac x86_64-apple-darwin
+      shell: bash
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect macos x86_64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-macos-x86_64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  build_linux_aarch64:
+    needs:
+    - validate
+    name: build_linux_aarch64
+    runs-on: ubuntu-22.04-arm
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Install Linux dependencies
+      run: |-
+        sudo apt-get update
+        script/linux
+      shell: bash
+    - name: Bundle Linux
+      run: script/bundle-linux
+      shell: bash
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect linux aarch64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-linux-aarch64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  build_linux_x86_64:
+    needs:
+    - validate
+    name: build_linux_x86_64
+    runs-on: ubuntu-22.04
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Install Linux dependencies
+      run: |-
+        sudo apt-get update
+        script/linux
+      shell: bash
+    - name: Bundle Linux
+      run: script/bundle-linux
+      shell: bash
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect linux x86_64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-linux-x86_64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  build_windows_aarch64:
+    needs:
+    - validate
+    name: build_windows_aarch64
+    runs-on: windows-2022
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_SIGNING_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_SIGNING_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_SIGNING_CLIENT_SECRET }}
+      ACCOUNT_NAME: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+      CERT_PROFILE_NAME: ${{ vars.AZURE_SIGNING_CERT_PROFILE_NAME }}
+      ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+      FILE_DIGEST: SHA256
+      TIMESTAMP_DIGEST: SHA256
+      TIMESTAMP_SERVER: http://timestamp.acs.microsoft.com
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Install signing tools and bundle Windows
+      run: |-
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $true
+        Install-Module -Name TrustedSigning -RequiredVersion 0.5.8 -Scope CurrentUser -Force -Repository PSGallery
+        Import-Module TrustedSigning
+        ./script/bundle-windows.ps1 -Architecture aarch64
+        $signature = Get-AuthenticodeSignature "target/Zed-aarch64.exe"
+        if ($signature.Status -ne 'Valid') { throw 'Installer signature validation failed' }
+      shell: pwsh
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect windows aarch64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-windows-aarch64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  build_windows_x86_64:
+    needs:
+    - validate
+    name: build_windows_x86_64
+    runs-on: windows-2022
+    env:
+      CARGO_INCREMENTAL: 0
+      ZED_CLIENT_CHECKSUM_SEED: ${{ secrets.ZED_CLIENT_CHECKSUM_SEED }}
+      ZED_MINIDUMP_ENDPOINT: ${{ secrets.ZED_SENTRY_MINIDUMP_ENDPOINT }}
+      AZURE_TENANT_ID: ${{ secrets.AZURE_SIGNING_TENANT_ID }}
+      AZURE_CLIENT_ID: ${{ secrets.AZURE_SIGNING_CLIENT_ID }}
+      AZURE_CLIENT_SECRET: ${{ secrets.AZURE_SIGNING_CLIENT_SECRET }}
+      ACCOUNT_NAME: ${{ vars.AZURE_SIGNING_ACCOUNT_NAME }}
+      CERT_PROFILE_NAME: ${{ vars.AZURE_SIGNING_CERT_PROFILE_NAME }}
+      ENDPOINT: ${{ vars.AZURE_SIGNING_ENDPOINT }}
+      FILE_DIGEST: SHA256
+      TIMESTAMP_DIGEST: SHA256
+      TIMESTAMP_SERVER: http://timestamp.acs.microsoft.com
+      WINDOWS_SIGNING_PUBLISHER: ${{ vars.WINDOWS_SIGNING_PUBLISHER }}
+      MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Prepare stable build
+      run: python script/bex-release.py prepare
+      shell: bash
+    - name: Action
+      uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+    - name: Install signing tools and bundle Windows
+      run: |-
+        $ErrorActionPreference = 'Stop'
+        $PSNativeCommandUseErrorActionPreference = $true
+        Install-Module -Name TrustedSigning -RequiredVersion 0.5.8 -Scope CurrentUser -Force -Repository PSGallery
+        Import-Module TrustedSigning
+        ./script/bundle-windows.ps1 -Architecture x86_64
+        $signature = Get-AuthenticodeSignature "target/Zed-x86_64.exe"
+        if ($signature.Status -ne 'Valid') { throw 'Installer signature validation failed' }
+      shell: pwsh
+    - name: Collect release artifacts
+      run: python script/bex-release.py collect windows x86_64
+      shell: bash
+    - name: Action
+      uses: actions/upload-artifact@v4
+      with:
+        name: bex-windows-x86_64
+        path: release-artifacts/*
+        if-no-files-found: error
+        compression-level: 0
+    timeout-minutes: 180
+  publish:
+    needs:
+    - build_macos_aarch64
+    - build_macos_x86_64
+    - build_linux_aarch64
+    - build_linux_x86_64
+    - build_windows_aarch64
+    - build_windows_x86_64
+    name: Publish complete stable release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+    - name: Action
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+    - name: Action
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+    - name: Action
+      uses: actions/download-artifact@v4
+      with:
+        pattern: bex-*
+        merge-multiple: true
+        path: release-artifacts
+    - name: Verify artifacts and publish
+      run: python script/bex-release.py publish
+      shell: bash
+      env:
+        GH_TOKEN: ${{ github.token }}
+    timeout-minutes: 15
+concurrency:
+  group: bex-stable-release
+  cancel-in-progress: false

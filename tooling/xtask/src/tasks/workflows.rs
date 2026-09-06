@@ -8,6 +8,7 @@ use strum::IntoEnumIterator;
 use crate::tasks::workflow_checks::{self};
 
 mod after_release;
+mod bex_release;
 mod autofix_pr;
 mod bump_patch_version;
 mod bump_zed_version;
@@ -221,6 +222,7 @@ pub fn run_workflows(args: GenerateWorkflowArgs) -> Result<()> {
 
     let workflows = [
         WorkflowFile::zed(after_release::after_release),
+        WorkflowFile::zed(bex_release::bex_release),
         WorkflowFile::zed(autofix_pr::autofix_pr),
         WorkflowFile::zed(bump_patch_version::bump_patch_version),
         WorkflowFile::zed(bump_zed_version::bump_zed_version),
