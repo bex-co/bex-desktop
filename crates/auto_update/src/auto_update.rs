@@ -344,7 +344,9 @@ pub fn release_notes_url(cx: &mut App) -> Option<String> {
             let auto_updater = AutoUpdater::get(cx)?;
             let auto_updater = auto_updater.read(cx);
             let mut current_version = auto_updater.current_version.clone();
-            current_version.pre = semver::Prerelease::EMPTY;
+            if !current_version.pre.as_str().starts_with("bex.") {
+                current_version.pre = semver::Prerelease::EMPTY;
+            }
             current_version.build = semver::BuildMetadata::EMPTY;
             let release_channel = release_channel.dev_name();
             let path = format!("/releases/{release_channel}/{current_version}");
@@ -689,7 +691,9 @@ impl AutoUpdater {
         };
 
         let version = if let Some(mut version) = version {
-            version.pre = semver::Prerelease::EMPTY;
+            if !version.pre.as_str().starts_with("bex.") {
+                version.pre = semver::Prerelease::EMPTY;
+            }
             version.build = semver::BuildMetadata::EMPTY;
             version.to_string()
         } else {
@@ -950,8 +954,14 @@ impl AutoUpdater {
         mut installed_version: Version,
         fetched_version: Version,
     ) -> Option<Version> {
-        // For non-nightly releases, ignore build and pre-release fields as they're not provided by our endpoints right now.
-        installed_version.pre = semver::Prerelease::EMPTY;
+        // Bex revisions are stable releases and must survive comparison against the feed.
+        if installed_version.pre.as_str().starts_with("bex.") {
+            if !fetched_version.pre.as_str().starts_with("bex.") {
+                return None;
+            }
+        } else {
+            installed_version.pre = semver::Prerelease::EMPTY;
+        }
         installed_version.build = semver::BuildMetadata::EMPTY;
         (fetched_version > installed_version).then_some(fetched_version)
     }
@@ -1605,6 +1615,26 @@ mod tests {
 
         let downloaded_len = std::fs::metadata(&target_path).unwrap().len();
         assert_eq!(downloaded_len, content_length as u64);
+    }
+
+    #[test]
+    fn test_bex_stable_revision_ordering() -> anyhow::Result<()> {
+        for (installed, fetched, expected) in [
+            ("1.20.0-bex.1", "1.20.0-bex.2", true),
+            ("1.20.0-bex.2", "1.20.0-bex.10", true),
+            ("1.20.0-bex.10", "1.20.1-bex.1", true),
+            ("1.20.0-bex.2", "1.20.0-bex.1", false),
+            ("1.20.0-bex.2", "1.20.0-bex.2", false),
+            ("1.20.1-bex.1", "1.20.0-bex.99", false),
+            ("1.20.0-bex.1", "1.20.0", false),
+        ] {
+            let result = AutoUpdater::check_if_fetched_version_is_newer_non_nightly(
+                Version::parse(installed)?,
+                Version::parse(fetched)?,
+            );
+            assert_eq!(result.is_some(), expected, "{installed} -> {fetched}");
+        }
+        Ok(())
     }
 
     #[test]

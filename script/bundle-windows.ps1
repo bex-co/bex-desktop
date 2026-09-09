@@ -215,6 +215,9 @@ function MakeAppx {
         [xml]$manifest = Get-Content "$innoDir\make_appx\AppxManifest.xml"
         $manifest.Package.Identity.Publisher = $env:WINDOWS_SIGNING_PUBLISHER
         $manifest.Package.Identity.Name = "BexCo.BexDesktop"
+        if ($env:BEX_WINDOWS_PACKAGE_VERSION) {
+            $manifest.Package.Identity.Version = $env:BEX_WINDOWS_PACKAGE_VERSION
+        }
         $manifest.Package.Properties.PublisherDisplayName = "bex"
         $manifest.Save("$innoDir\make_appx\AppxManifest.xml")
     }
@@ -361,6 +364,10 @@ function BuildInstaller {
 
     if ($env:WINDOWS_SIGNING_PUBLISHER) {
         $definitions["BexAppxPackageName"] = "BexCo.BexDesktop"
+    }
+
+    if ($env:BEX_WINDOWS_PACKAGE_VERSION) {
+        $definitions["NumericVersion"] = $env:BEX_WINDOWS_PACKAGE_VERSION
     }
 
     $defs = @()

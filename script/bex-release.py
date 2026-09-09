@@ -12,7 +12,7 @@ import sys
 import tomllib
 
 REPOSITORY = "bex-co/bex-desktop"
-VERSION = re.compile(r"v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)\Z")
+VERSION = re.compile(r"bex-v(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-bex\.([1-9]\d*)\Z")
 ARCHITECTURES = ("aarch64", "x86_64")
 SYSTEMS = ("macos", "linux", "windows")
 
@@ -24,20 +24,31 @@ def run(*arguments):
 def version_tuple(tag):
     match = VERSION.fullmatch(tag)
     if not match:
-        raise ValueError("Release tag must be v<major>.<minor>.<patch> without leading zeros")
-    return tuple(int(component) for component in match.groups())
+        raise ValueError("Release tag must be bex-v<major>.<minor>.<patch>-bex.<revision> without leading zeros")
+    components = tuple(int(component) for component in match.groups())
+    if any(component > 65535 for component in components[:3]) or components[3] > 9999:
+        raise ValueError("Version exceeds native package limits (base <=65535, revision 1..9999)")
+    return components
 
 
 def validate_tag(tag):
     version_tuple(tag)
     with Path("crates/zed/Cargo.toml").open("rb") as source:
-        version = tomllib.load(source)["package"]["version"]
-    if tag != f"v{version}":
+        package = tomllib.load(source)["package"]
+        version = package["version"]
+    if tag != f"bex-v{version}":
         raise ValueError(f"Tag {tag} does not match crates/zed/Cargo.toml version {version}")
     commit = run("git", "rev-parse", "HEAD")
     if run("git", "rev-parse", f"refs/tags/{tag}^{{commit}}") != commit:
         raise ValueError("Checkout is not the tagged commit")
     run("git", "merge-base", "--is-ancestor", commit, "origin/main")
+    upstream = package["metadata"]["bex-upstream"]
+    if version.split("-bex.")[0] != upstream["version"]:
+        raise ValueError("Release must retain the declared upstream version")
+    run("git", "merge-base", "--is-ancestor", upstream["commit"], commit)
+    baseline = tomllib.loads(run("git", "show", f"{upstream['commit']}:crates/zed/Cargo.toml"))
+    if baseline["package"]["version"] != upstream["version"]:
+        raise ValueError("Upstream commit does not match the declared base version")
     return version
 
 
@@ -92,7 +103,11 @@ def prepare(tag):
     if not environment:
         raise ValueError("prepare must run inside GitHub Actions")
     with Path(environment).open("a") as output:
+        major, minor, patch, revision = version_tuple(tag)
         output.write(f"RELEASE_VERSION={version}\nZED_RELEASE_CHANNEL=stable\n")
+        output.write(f"BEX_WINDOWS_PACKAGE_VERSION={major}.{minor}.{patch}.{revision}\n")
+        output.write(f"BEX_MACOS_BUNDLE_VERSION={revision}\n")
+        output.write(f"BEX_UPSTREAM_VERSION={major}.{minor}.{patch}\n")
 
 
 def collect(system, architecture):
@@ -127,6 +142,12 @@ def verify_artifacts(directory):
     return checksums
 
 
+def upstream_notes():
+    with Path("crates/zed/Cargo.toml").open("rb") as source:
+        upstream = tomllib.load(source)["package"]["metadata"]["bex-upstream"]
+    return f"Upstream base: Zed {upstream['version']} ({upstream['commit']})."
+
+
 def publish(tag):
     validate_tag(tag)
     releases = release_list()
@@ -135,7 +156,7 @@ def publish(tag):
     checksums = verify_artifacts(directory)
     (directory / "SHA256SUMS").write_text("".join(checksums))
     if not any(release["tag_name"] == tag for release in releases):
-        run("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--draft", "--title", f"bex-desktop {tag[1:]}", "--generate-notes")
+        run("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--draft", "--title", f"bex-desktop {tag.removeprefix('bex-v')}", "--generate-notes", "--notes", upstream_notes())
     run("gh", "release", "upload", tag, "--repo", REPOSITORY, "--clobber", *(str(path) for path in sorted(directory.iterdir())))
     release = json.loads(run("gh", "api", f"repos/{REPOSITORY}/releases/tags/{tag}"))
     if not release["draft"]:

@@ -43,7 +43,7 @@ pub fn bex_release() -> Workflow {
         );
     let mut workflow = Workflow::new("bex_release")
         .on(Event::default()
-            .push(Push::default().add_tag("v*").add_branch("main").add_path("script/bex-release.py").add_path("script/test_bex_release.py").add_path("tooling/xtask/src/tasks/workflows/bex_release.rs").add_path(".github/workflows/bex_release.yml"))
+            .push(Push::default().add_tag("bex-v*").add_branch("main").add_path("script/bex-release.py").add_path("script/test_bex_release.py").add_path("tooling/xtask/src/tasks/workflows/bex_release.rs").add_path(".github/workflows/bex_release.yml"))
             .workflow_dispatch(WorkflowDispatch::default()))
         .permissions(Permissions::default().contents(Level::Read))
         .concurrency(Concurrency::new(Expression::new("bex-stable-release")).cancel_in_progress(false))
@@ -58,7 +58,7 @@ pub fn bex_release() -> Workflow {
             .add_step(command("Verify generated workflows", "cargo xtask workflows\ngit diff --exit-code -- .github/workflows extensions/workflows\ncargo xtask check-workflows")))
         .add_job("validate", Job::new("Validate release and signing configuration").add_need("checks")
             .runs_on("ubuntu-24.04")
-            .cond(Expression::new("github.repository == 'bex-co/bex-desktop' && startsWith(github.ref, 'refs/tags/v')"))
+            .cond(Expression::new("github.repository == 'bex-co/bex-desktop' && startsWith(github.ref, 'refs/tags/bex-v')"))
             .timeout_minutes(10u32)
             .add_step(checkout())
             .add_step(python())

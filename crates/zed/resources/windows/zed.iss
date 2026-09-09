@@ -25,7 +25,11 @@ ChangesAssociations=true
 MinVersion=10.0.16299
 SourceDir={#SourceDir}
 AppVersion={#Version}
+#ifdef NumericVersion
+VersionInfoVersion={#NumericVersion}
+#else
 VersionInfoVersion={#Version}
+#endif
 ShowLanguageDialog=auto
 WizardStyle=modern
 

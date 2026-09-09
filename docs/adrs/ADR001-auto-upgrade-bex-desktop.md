@@ -23,9 +23,9 @@ What the fork is missing is the entire supply side:
 
 ## Decision
 
-Keep Zed's client updater byte-for-byte and stand up a bex-owned supply chain behind the URL the client already queries. Three new pieces, smallest that can work:
+Keep Zed's client updater architecture, preserving Bex revision suffixes in version comparisons and URLs, and stand up a bex-owned supply chain behind the URL the client already queries. Three new pieces, smallest that can work:
 
-1. **Artifact store: GitHub Releases on `bex-co/bex-desktop`.** A bex-owned release workflow (slim, xtask-generated, not upstream's) runs on `v*` tag push, calls the existing `script/bundle-mac`, `script/bundle-linux`, and `script/bundle-windows.ps1` on GitHub-hosted runners, signs the artifacts, and uploads: per-arch DMGs, tar.gzs, Inno `.exe` installers, and `zed-remote-server-{os}-{arch}` sidecars.
+1. **Artifact store: GitHub Releases on `bex-co/bex-desktop`.** A bex-owned release workflow (slim, xtask-generated, not upstream's) runs on `bex-v*` tag push, calls the existing `script/bundle-mac`, `script/bundle-linux`, and `script/bundle-windows.ps1` on GitHub-hosted runners, signs the artifacts, and uploads: per-arch DMGs, tar.gzs, Inno `.exe` installers, and `zed-remote-server-{os}-{arch}` sidecars.
 2. **Release feed on bex.co.** A small service (edge worker or bex-api route) implementing Zed's feed contract:
    - `GET /releases/{channel}/{version|latest}/asset?asset={zed|zed-remote-server}&os={macos|linux|windows}&arch={aarch64|x86_64}` → `{ "version": "<semver>", "url": "<direct download URL>" }`
    - It resolves `latest` per channel by reading the GitHub Releases API and maps `asset`/`os`/`arch` to the matching release asset's download URL. It is the single point of trust for code execution on every client and is operated with production-security rigor (TLS only, no cache poisoning surface, audited writes).
@@ -125,12 +125,12 @@ notes JSON, browser redirects to GitHub release notes, and
 assets must remain public; the feed and desktop downloads require no GitHub token.
 
 `cargo xtask workflows` generates `.github/workflows/bex_release.yml` from
-`tooling/xtask/src/tasks/workflows/bex_release.rs`. The workflow runs on `v*` tag
+`tooling/xtask/src/tasks/workflows/bex_release.rs`. The workflow runs on `bex-v*` tag
 pushes in `bex-co/bex-desktop`; a manual dispatch must select an existing release
 tag. Changes to the pipeline on main run its tests and verify generated workflow
 files without building or publishing a release. `script/bex-release.py` validates and publishes releases. The workflow:
 
-1. Requires `v<major>.<minor>.<patch>` to match `crates/zed/Cargo.toml`, point at
+1. Requires `bex-v<major>.<minor>.<patch>-bex.<revision>` to match `crates/zed/Cargo.toml`, point at
    the checked-out commit, and belong to main's history. It refuses an already
    published tag or a version older than any published stable release.
 2. Checks all signing configuration before starting the six builds.
@@ -146,6 +146,31 @@ files without building or publishing a release. `script/bex-release.py` validate
    A failed upload leaves a draft that can be retried; published assets are never
    intentionally replaced. Release runs are serialized to prevent competing
    versions from advancing the stable feed out of order.
+
+Versions retain the complete upstream Zed version and append `-bex.N`, starting
+at 1. Increment N for Bex-only releases; reset it to 1 when adopting a newer
+upstream version. The current baseline is Zed `1.20.0` at
+`b1a7ef0cf66dfbf9d7661170c96d97c7df916c68`, recorded in
+`package.metadata.bex-upstream` in `crates/zed/Cargo.toml`. Validation checks the
+baseline's ancestry and crate version; generated release notes name that baseline.
+A merge that changes the upstream version must update both the metadata and the
+Bex crate version.
+
+`-bex.N` denotes a stable Bex revision even though SemVer parses it as a prerelease.
+GitHub releases remain `prerelease=false`; the stable updater retains the suffix
+in comparisons and URLs. For example, `1.20.0-bex.10` follows `1.20.0-bex.2`, and
+`1.20.1-bex.1` follows both. Plain upstream releases cannot replace a Bex install.
+The feed accepts only Bex versions and resolves them to `bex-v` tags. No plain
+`v1.20.0` release was published, so no public legacy-version migration is needed.
+
+Native package fields use numeric versions: Windows uses `major.minor.patch.N`
+for AppX and installer version resources. macOS uses `N` for CFBundleVersion and
+the upstream `major.minor.patch` for
+CFBundleShortVersionString. The macOS build number resets with a new upstream
+marketing version; the desktop updater compares the full application version.
+The application and feed retain the full `-bex.N` version. Release validation caps
+N at 9999 and base components at 65535 to keep Windows fields representable and
+the macOS build number within four digits.
 
 Configure these repository **secrets** before the first release:
 
@@ -172,11 +197,11 @@ Configure these repository **variables**:
 
 After merging the intended changes to main, update the crate version for a new
 release, commit and push that change, then push the matching tag. For example,
-when the committed crate version is `1.20.0`:
+when the committed crate version is `1.20.0-bex.1`:
 
 ```sh
-git tag v1.20.0
-git push origin v1.20.0
+git tag bex-v1.20.0-bex.1
+git push origin bex-v1.20.0-bex.1
 ```
 
 Protect release tags against deletion and updates, and restrict their creation to

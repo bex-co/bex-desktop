@@ -2,7 +2,7 @@
 description = "The fast, collaborative code editor."
 edition.workspace = true
 name = "zed"
-version = "1.20.0"
+version = "1.20.0-bex.1"
 publish.workspace = true
 license = "GPL-3.0-or-later"
 authors = ["Zed Team <hi@zed.dev>"]
@@ -316,3 +316,7 @@ osx_url_schemes = ["zed"]
 
 [package.metadata.cargo-shear]
 ignored = ["profiling", "tracing"]
+
+[package.metadata.bex-upstream]
+version = "1.20.0"
+commit = "b1a7ef0cf66dfbf9d7661170c96d97c7df916c68"

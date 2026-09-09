@@ -105,6 +105,10 @@ app_path=$(cargo bundle ${build_flag} --target $target_triple --select-workspace
 mv Cargo.toml.backup Cargo.toml
 popd
 echo "Bundled ${app_path}"
+if [ -n "${BEX_MACOS_BUNDLE_VERSION:-}" ]; then
+    /usr/libexec/PlistBuddy -c "Set :CFBundleVersion ${BEX_MACOS_BUNDLE_VERSION}" "$app_path/Contents/Info.plist"
+    /usr/libexec/PlistBuddy -c "Set :CFBundleShortVersionString ${BEX_UPSTREAM_VERSION}" "$app_path/Contents/Info.plist"
+fi
 
 # DocumentTypes.plist references CFBundleTypeIconFile "Document", so the bundle must contain Document.icns.
 # We use the app icon as a placeholder document icon for now.
