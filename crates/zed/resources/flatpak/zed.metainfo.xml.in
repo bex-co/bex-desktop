@@ -6,12 +6,12 @@
 
     <name>$APP_NAME</name>
     <summary>High-performance, multiplayer code editor</summary>
-    <developer id="dev.zed">
-        <name translate="no">Zed Industries, Inc.</name>
+    <developer id="co.bex">
+        <name translate="no">Bex</name>
     </developer>
     <description>
         <p>
-            Productive coding starts with a tool that stays out of your way. Zed blends the power of an IDE with the speed of a lightweight editor for productivity you can feel under your fingertips.
+            Productive coding starts with a tool that stays out of your way. Bex blends the power of an IDE with the speed of a lightweight editor for productivity you can feel under your fingertips.
         </p>
         <p>Features:</p>
         <ul>
@@ -34,13 +34,13 @@
         <content_attribute id="social-audio">intense</content_attribute>
     </content_rating>
 
-    <url type="homepage">https://zed.dev</url>
-    <url type="bugtracker">https://github.com/zed-industries/zed/issues</url>
+    <url type="homepage">https://bex.co</url>
+    <url type="bugtracker">https://github.com/bex-co/bex-desktop/issues</url>
     <url type="faq">https://zed.dev/faq</url>
     <url type="help">https://zed.dev/docs/getting-started</url>
     <url type="contact">https://zed.dev/community-links</url>
-    <url type="vcs-browser">https://github.com/zed-industries/zed</url>
-    <url type="contribute">https://github.com/zed-industries/zed/blob/main/CONTRIBUTING.md</url>
+    <url type="vcs-browser">https://github.com/bex-co/bex-desktop</url>
+    <url type="contribute">https://github.com/bex-co/bex-desktop/blob/main/CONTRIBUTING.md</url>
 
     <supports>
         <internet>offline-only</internet>

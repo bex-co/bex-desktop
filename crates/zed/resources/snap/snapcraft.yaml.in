@@ -1,10 +1,10 @@
 name: zed
-title: Zed
+title: Bex
 base: core24
 version: "$RELEASE_VERSION"
 summary: The editor for what's next
 description: |
-  Zed is a modern open-source code editor, built from the ground up in Rust with
+  Bex is a modern open-source code editor, built from the ground up in Rust with
   a GPU-accelerated renderer. We help you build software faster than ever before.
 grade: stable
 confinement: classic

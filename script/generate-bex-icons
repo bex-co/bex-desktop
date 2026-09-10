@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+if ! command -v magick >/dev/null || ! command -v iconutil >/dev/null; then
+    echo "Generating Bex icons requires ImageMagick and macOS iconutil." >&2
+    exit 1
+fi
+
+# This copy of ../dashboard/public/logo.png keeps bundles independent of a sibling checkout.
+source_icon="assets/images/bex_logo.png"
+resources="crates/zed/resources"
+temporary_directory=$(mktemp -d)
+trap 'rm -rf "$temporary_directory"' EXIT
+
+for suffix in "" "-dev" "-nightly" "-preview"; do
+    cp "$source_icon" "$resources/app-icon$suffix.png"
+    magick "$source_icon" -resize 1024x1024 "$resources/app-icon$suffix@2x.png"
+    magick "$source_icon" -define icon:auto-resize=256,128,64,48,32,16 \
+        "$resources/windows/app-icon$suffix.ico"
+done
+
+for size in 70 150; do
+    magick "$source_icon" -resize "${size}x${size}" \
+        "$resources/windows/logo_${size}x${size}.png"
+done
+
+iconset="$temporary_directory/Document.iconset"
+mkdir -p "$iconset"
+for size in 16 32 128 256 512; do
+    magick "$source_icon" -resize "${size}x${size}" "$iconset/icon_${size}x${size}.png"
+    magick "$source_icon" -resize "$((size * 2))x$((size * 2))" \
+        "$iconset/icon_${size}x${size}@2x.png"
+done
+iconutil -c icns "$iconset" -o "$resources/Document.icns"

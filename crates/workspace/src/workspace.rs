@@ -10358,7 +10358,7 @@ pub fn join_channel(
                         let detail: SharedString = match err.error_code() {
                             ErrorCode::SignedOut => "Please sign in to continue.".into(),
                             ErrorCode::UpgradeRequired => concat!(
-                                "Your are running an unsupported version of Zed. ",
+                                "You are running an unsupported version of Bex. ",
                                 "Please update to continue."
                             )
                             .into(),

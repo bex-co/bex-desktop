@@ -9,21 +9,21 @@ use zed_actions::feedback::{EmailZed, FileBugReport, RequestFeature};
 actions!(
     zed,
     [
-        /// Opens the Zed repository on GitHub.
+        /// Opens the Bex repository on GitHub.
         OpenZedRepo,
         /// Copies installed extensions to the clipboard for bug reports.
         CopyInstalledExtensionsIntoClipboard
     ]
 );
 
-const ZED_REPO_URL: &str = "https://github.com/zed-industries/zed";
+const BEX_REPO_URL: &str = "https://github.com/bex-co/bex-desktop";
 
-const REQUEST_FEATURE_URL: &str = "https://github.com/zed-industries/zed/discussions/new/choose";
+const REQUEST_FEATURE_URL: &str = "https://github.com/bex-co/bex-desktop/issues/new";
 
 fn file_bug_report_url(specs: &SystemSpecs) -> String {
     format!(
         concat!(
-            "https://github.com/zed-industries/zed/issues/new",
+            "https://github.com/bex-co/bex-desktop/issues/new",
             "?",
             "template=10_bug_report.yml",
             "&",
@@ -109,7 +109,7 @@ pub fn init(cx: &mut App) {
                 .detach();
             })
             .register_action(move |_, _: &OpenZedRepo, _, cx| {
-                cx.open_url(ZED_REPO_URL);
+                cx.open_url(BEX_REPO_URL);
             });
     })
     .detach();

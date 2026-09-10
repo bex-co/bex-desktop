@@ -194,9 +194,9 @@ setTimeout(() => {
     const size = [instanceWidth, instanceHeight].join(",");
     let binaryPath = zedBinary;
     if (i != 0 && othersOnStable) {
-      binaryPath = "/Applications/Zed.app/Contents/MacOS/zed";
+      binaryPath = "/Applications/Bex.app/Contents/MacOS/zed";
     } else if (i != 0 && othersOnPreview) {
-      binaryPath = "/Applications/Zed Preview.app/Contents/MacOS/zed";
+      binaryPath = "/Applications/Bex Preview.app/Contents/MacOS/zed";
     }
     spawn(binaryPath, i == 0 ? args : [], {
       stdio: "inherit",

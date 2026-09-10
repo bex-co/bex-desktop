@@ -2,10 +2,10 @@
 AppId={#AppId}
 AppName={#AppName}
 AppVerName={#AppDisplayName}
-AppPublisher=Zed Industries
-AppPublisherURL=https://www.zed.dev/
-AppSupportURL=https://www.zed.dev/
-AppUpdatesURL=https://www.zed.dev/
+AppPublisher=Bex
+AppPublisherURL=https://bex.co/
+AppSupportURL=https://github.com/bex-co/bex-desktop/issues
+AppUpdatesURL=https://github.com/bex-co/bex-desktop/releases
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 DisableReadyPage=yes

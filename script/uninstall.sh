@@ -7,7 +7,7 @@ check_remaining_installations() {
     platform="$(uname -s)"
     if [ "$platform" = "Darwin" ]; then
         # Check for any Zed variants in /Applications
-        remaining=$(ls -d /Applications/Zed*.app 2>/dev/null | wc -l)
+        remaining=$(ls -d /Applications/Bex*.app /Applications/Zed*.app 2>/dev/null | wc -l)
         [ "$remaining" -eq 0 ]
     else
         # Check for any Zed variants in ~/.local
@@ -17,7 +17,7 @@ check_remaining_installations() {
 }
 
 prompt_remove_preferences() {
-    printf "Do you want to keep your Zed preferences? [Y/n] "
+    printf "Do you want to keep your Bex preferences? [Y/n] "
     read -r response
     case "$response" in
         [nN]|[nN][oO])
@@ -45,7 +45,7 @@ main() {
 
     "$platform"
 
-    echo "Zed has been uninstalled"
+    echo "Bex has been uninstalled"
 }
 
 linux() {
@@ -105,26 +105,36 @@ linux() {
 }
 
 macos() {
-    app="Zed.app"
+    app="Bex.app"
     db_suffix="stable"
     app_id="dev.zed.Zed"
     case "$channel" in
       nightly)
-        app="Zed Nightly.app"
+        app="Bex Nightly.app"
         db_suffix="nightly"
         app_id="dev.zed.Zed-Nightly"
         ;;
       preview)
-        app="Zed Preview.app"
+        app="Bex Preview.app"
         db_suffix="preview"
         app_id="dev.zed.Zed-Preview"
         ;;
       dev)
-        app="Zed Dev.app"
+        app="Bex Dev.app"
         db_suffix="dev"
         app_id="dev.zed.Zed-Dev"
         ;;
     esac
+
+    # Auto-updates preserve the installation path, including the old Zed.app name.
+    legacy_app="Zed${app#Bex}"
+    legacy_plist="/Applications/$legacy_app/Contents/Info.plist"
+    if [ ! -d "/Applications/$app" ] && [ -f "$legacy_plist" ]; then
+        if installed_bundle_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleName" "$legacy_plist") &&
+            [ "$installed_bundle_name.app" = "$app" ]; then
+            app="$legacy_app"
+        fi
+    fi
 
     # Remove the app bundle
     if [ -d "/Applications/$app" ]; then

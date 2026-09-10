@@ -309,7 +309,7 @@ pub fn check(_: &Check, window: &mut Window, cx: &mut App) {
     {
         drop(window.prompt(
             gpui::PromptLevel::Info,
-            "Zed was installed via a package manager.",
+            "Bex was installed via a package manager.",
             Some(&message),
             &["OK"],
             cx,
@@ -1199,12 +1199,10 @@ async fn install_release_macos(
     running_app_path: PathBuf,
     background_executor: &BackgroundExecutor,
 ) -> Result<Option<PathBuf>> {
-    let running_app_filename = running_app_path
-        .file_name()
-        .with_context(|| format!("invalid running app path {running_app_path:?}"))?;
-
+    // The installed bundle may still be named Zed.app after updating an older Bex build.
+    let bundled_app_filename = format!("{}.app", release_channel::RELEASE_CHANNEL.display_name());
     let mount_path = temp_dir.path().join("Zed");
-    let mut mounted_app_path: OsString = mount_path.join(running_app_filename).into();
+    let mut mounted_app_path: OsString = mount_path.join(bundled_app_filename).into();
 
     mounted_app_path.push("/");
     let mut cmd = new_command("hdiutil");
