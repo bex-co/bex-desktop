@@ -1,5 +1,4 @@
 import importlib.util
-import json
 import os
 from pathlib import Path
 import tempfile
@@ -131,13 +130,18 @@ class ReleaseTests(unittest.TestCase):
                 def github(*arguments):
                     calls.append(arguments)
                     if arguments[:2] == ("gh", "api"):
-                        return json.dumps({"draft": True, "assets": [
-                            {"name": path.name, "size": path.stat().st_size, "state": "uploaded"}
-                            for path in directory.iterdir()
-                        ]})
+                        self.fail("Draft verification must not use the public tag endpoint")
                     return ""
 
-                with patch.object(release, "upstream_notes", return_value="Upstream base: Zed 1.2.3"), patch.object(release, "validate_tag"), patch.object(release, "release_list", return_value=[]), patch.object(release, "run", side_effect=github):
+                def releases():
+                    if not (directory / "SHA256SUMS").exists():
+                        return []
+                    return [{"tag_name": "bex-v1.2.3-bex.1", "draft": True, "prerelease": False, "assets": [
+                        {"name": path.name, "size": path.stat().st_size, "state": "uploaded"}
+                        for path in directory.iterdir()
+                    ]}]
+
+                with patch.object(release, "upstream_notes", return_value="Upstream base: Zed 1.2.3"), patch.object(release, "validate_tag"), patch.object(release, "release_list", side_effect=releases), patch.object(release, "run", side_effect=github):
                     release.publish("bex-v1.2.3-bex.1")
                 self.assertEqual(calls[0][:3], ("gh", "release", "create"))
                 self.assertIn("--draft", calls[0])

@@ -158,7 +158,10 @@ def publish(tag):
     if not any(release["tag_name"] == tag for release in releases):
         run("gh", "release", "create", tag, "--repo", REPOSITORY, "--verify-tag", "--draft", "--title", f"bex-desktop {tag.removeprefix('bex-v')}", "--generate-notes", "--notes", upstream_notes())
     run("gh", "release", "upload", tag, "--repo", REPOSITORY, "--clobber", *(str(path) for path in sorted(directory.iterdir())))
-    release = json.loads(run("gh", "api", f"repos/{REPOSITORY}/releases/tags/{tag}"))
+    # The tag endpoint can return 404 for drafts; the authenticated list includes them.
+    release = next((entry for entry in release_list() if entry["tag_name"] == tag), None)
+    if release is None:
+        raise ValueError("Uploaded draft release was not found")
     if not release["draft"]:
         raise ValueError("Release became public during upload; refusing to modify it")
     expected = expected_assets() | {"SHA256SUMS"}
