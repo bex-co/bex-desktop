@@ -100,7 +100,9 @@ sed \
     "s/package.metadata.bundle-${channel}/package.metadata.bundle/" \
     Cargo.toml
 
-app_path=$(cargo bundle ${build_flag} --target $target_triple --select-workspace-root | xargs)
+# Reuse the binaries built with bundle-config.toml; cargo-bundle's default build
+# would compile them again with different flags and duplicate the build artifacts.
+app_path=$(CARGO_BUNDLE_SKIP_BUILD=true cargo bundle ${build_flag} --target $target_triple --select-workspace-root | xargs)
 
 mv Cargo.toml.backup Cargo.toml
 popd

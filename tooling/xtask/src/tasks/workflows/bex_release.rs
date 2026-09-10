@@ -79,7 +79,7 @@ pub fn bex_release() -> Workflow {
         let mut job = Job::new(&name)
             .runs_on(runner)
             .add_need("validate")
-            .timeout_minutes(180u32)
+            .timeout_minutes(if os == "macos" { 240u32 } else { 180u32 })
             .envs(
                 bundle_envs(platform)
                     .add(

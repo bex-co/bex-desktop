@@ -130,7 +130,7 @@ jobs:
         path: release-artifacts/*
         if-no-files-found: error
         compression-level: 0
-    timeout-minutes: 180
+    timeout-minutes: 240
   build_macos_x86_64:
     needs:
     - validate
@@ -177,7 +177,7 @@ jobs:
         path: release-artifacts/*
         if-no-files-found: error
         compression-level: 0
-    timeout-minutes: 180
+    timeout-minutes: 240
   build_linux_aarch64:
     needs:
     - validate
