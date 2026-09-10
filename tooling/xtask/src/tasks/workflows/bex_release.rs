@@ -107,8 +107,28 @@ pub fn bex_release() -> Workflow {
                 .add_step(command(
                     "Install Linux dependencies",
                     "sudo apt-get update\nscript/linux",
-                ))
-                .add_step(command("Bundle Linux", "script/bundle-linux"));
+                ));
+            if arch == "aarch64" {
+                job = job.add_step(command(
+                    "Install and verify ARM compiler runtime",
+                    r#"curl -fsSL https://apt.llvm.org/llvm-snapshot.gpg.key | sudo tee /etc/apt/trusted.gpg.d/bex-llvm.asc > /dev/null
+echo 'deb https://apt.llvm.org/jammy/ llvm-toolchain-jammy-21 main' | sudo tee /etc/apt/sources.list.d/bex-llvm.list
+sudo apt-get update
+sudo apt-get install -y clang-21 lld-21 libclang-rt-21-dev
+# WebRTC's prebuilt ARM library requires SME support absent from Jammy's libgcc.
+cat > "$RUNNER_TEMP/bex-linux-linker" <<'LINKER'
+#!/usr/bin/env bash
+exec /usr/lib/llvm-21/bin/clang --rtlib=compiler-rt "$@"
+LINKER
+chmod +x "$RUNNER_TEMP/bex-linux-linker"
+echo "CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER=$RUNNER_TEMP/bex-linux-linker" >> "$GITHUB_ENV"
+echo '/usr/lib/llvm-21/bin' >> "$GITHUB_PATH"
+printf 'extern void __arm_tpidr2_save(void); int main(void) { __arm_tpidr2_save(); return 0; }\n' > "$RUNNER_TEMP/bex-sme-check.c"
+"$RUNNER_TEMP/bex-linux-linker" "$RUNNER_TEMP/bex-sme-check.c" -o "$RUNNER_TEMP/bex-sme-check"
+"$RUNNER_TEMP/bex-sme-check""#,
+                ));
+            }
+            job = job.add_step(command("Bundle Linux", "script/bundle-linux"));
         } else if os == "macos" {
             job = job.add_step(command(
                 "Bundle and notarize macOS",
