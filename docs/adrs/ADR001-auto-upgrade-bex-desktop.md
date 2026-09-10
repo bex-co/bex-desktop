@@ -33,7 +33,7 @@ Keep Zed's client updater architecture, preserving Bex revision suffixes in vers
    - Ship a single `stable` channel first. Release builds set `ZED_RELEASE_CHANNEL=stable` (or carry a `stable` `RELEASE_CHANNEL` file on release branches, mirroring upstream's branch model). `dev` remains the default in-tree so working checkouts never self-update.
    - macOS artifacts are signed with a bex Apple Developer ID certificate and notarized. **The signing identity must be stable from the first public release**: macOS keychain access is bound to the signing identity, so an identity change mid-stream strands users' stored credentials after an in-place rsync update.
    - Windows installers are signed (Azure Trusted Signing or equivalent) to avoid SmartScreen. Linux tarballs are unsigned, matching upstream.
-   - Versioning: adopt upstream's `major.minor` on each upstream merge; use the patch component for bex-initiated releases in between. Versions are strictly increasing and never re-tagged — the client's update check is a plain semver `>`.
+   - Versioning: retain upstream's complete `major.minor.patch` and append `-bex.N` for Bex revisions. Increment N for Bex-only releases and reset it to 1 when adopting a newer upstream version. Versions are strictly increasing and never re-tagged; the updater preserves the suffix and compares Bex versions using semver `>`.
 
 ### Parties
 
