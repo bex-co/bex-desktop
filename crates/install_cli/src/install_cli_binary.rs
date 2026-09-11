@@ -25,7 +25,7 @@ const CANT_INSTALL_DOCS_URL: &str = "https://zed.dev/docs/macos#cant-install-cli
 /// commonly because the user is not an admin.
 async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
     let cli_path = cx.update(|cx| cx.path_for_auxiliary_executable("cli"))?;
-    let link_path = Path::new("/usr/local/bin/zed");
+    let link_path = Path::new("/usr/local/bin/bex");
     let bin_dir_path = link_path.parent().unwrap();
 
     // Don't re-create symlink if it points to the same CLI binary.
@@ -33,9 +33,9 @@ async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
         return Ok(Some(link_path.into()));
     }
 
-    // If the symlink is not there or is outdated, first try replacing it
-    // without escalating.
-    smol::fs::remove_file(link_path).await.log_err();
+    if smol::fs::symlink_metadata(link_path).await.is_ok() {
+        anyhow::bail!("{} already belongs to another command. Choose a different path for the Bex editor CLI.", link_path.display());
+    }
     if smol::fs::unix::symlink(&cli_path, link_path)
         .await
         .log_err()
@@ -52,7 +52,7 @@ async fn install_script(cx: &AsyncApp) -> Result<Option<PathBuf>> {
             &format!(
                 "do shell script \" \
                     mkdir -p \'{}\' && \
-                    ln -sf \'{}\' \'{}\' \
+                    ln -s \'{}\' \'{}\' \
                 \" with administrator privileges",
                 bin_dir_path.to_string_lossy(),
                 cli_path.to_string_lossy(),
@@ -98,7 +98,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
             // The user dismissed the administrator prompt; nothing to do.
             Ok(None) => return Ok(()),
             Err(error) => {
-                log::error!("failed to install zed CLI: {error:#}");
+                log::error!("failed to install bex CLI: {error:#}");
                 workspace.update(cx, |workspace, cx| {
                     struct CliInstallFailed;
 
@@ -108,7 +108,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
                         |cx| {
                             cx.new(|cx| {
                                 MessageNotification::new(
-                                    "You can add `zed` to your PATH manually.",
+                                    "You can add `bex` to your PATH manually.",
                                     cx,
                                 )
                                 .with_title("Couldn't install the Bex CLI")
@@ -129,7 +129,7 @@ pub fn install_cli_binary(window: &mut Window, cx: &mut Context<Workspace>) {
                 Toast::new(
                     NotificationId::unique::<InstalledZedCli>(),
                     format!(
-                        "Installed `zed` to {}. You can launch {} from your terminal.",
+                        "Installed `bex` to {}. You can launch {} from your terminal.",
                         path.to_string_lossy(),
                         ReleaseChannel::global(cx).display_name()
                     ),

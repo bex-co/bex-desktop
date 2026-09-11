@@ -155,6 +155,11 @@ impl OpenRequest {
         }
 
         for url in request.urls {
+            // Accept old shared links while new links use the Bex scheme.
+            let url = url
+                .strip_prefix("bex://")
+                .map(|path| format!("zed://{path}"))
+                .unwrap_or(url);
             if let Some(server_name) = url.strip_prefix("zed-cli://") {
                 this.kind = Some(OpenRequestKind::CliConnection(connect_to_cli(server_name)?));
             } else if let Some(action_index) = url.strip_prefix("zed-dock-action://") {

@@ -4,15 +4,7 @@
 mod reliability;
 mod zed;
 
-// Ensure the binary name stays in sync with APP_NAME so that the paths used
-// at runtime (data dir, config dir, etc.) match what the binary is called.
-const _: () = assert!(
-    paths::APP_NAME_LOWERCASE
-        .as_bytes()
-        .eq_ignore_ascii_case(env!("CARGO_BIN_NAME").as_bytes()),
-    "paths::APP_NAME_LOWERCASE must match the binary name. \
-     Forks: update APP_NAME in crates/paths/src/paths.rs when renaming the binary.",
-);
+// Distribution scripts rename the executable; the Cargo target retains its upstream name.
 
 use agent_ui::AgentPanel;
 use anyhow::{Context as _, Result};
@@ -119,6 +111,10 @@ fn files_not_created_on_launch(errors: HashMap<io::ErrorKind, Vec<&Path>>) {
         })
         .collect::<Vec<_>>().join("\n\n");
 
+    show_launch_error(message, error_details);
+}
+
+fn show_launch_error(message: &'static str, error_details: String) {
     eprintln!("{message}: {error_details}");
     build_application()
         .with_quit_mode(QuitMode::Explicit)
@@ -268,6 +264,16 @@ fn main() {
         Vec::new()
     };
 
+    if let Err(error) = paths::migrate_legacy_profile() {
+        show_launch_error(
+            "Bex could not import your previous profile",
+            format!(
+                "{error}. Close other editor instances and retry. Your original profile has been preserved."
+            ),
+        );
+        return;
+    }
+
     #[cfg(target_os = "windows")]
     match util::get_zed_cli_path() {
         Ok(path) => askpass::set_askpass_program(path),
@@ -375,7 +381,7 @@ fn main() {
         }
     };
     if failed_single_instance_check {
-        println!("zed is already running");
+        println!("bex is already running");
         return;
     }
 
@@ -496,7 +502,7 @@ fn main() {
         handle_keymap_file_changes(user_keymap_file_rx, user_keymap_watcher, cx);
 
         let user_agent = format!(
-            "Zed/{} ({}; {})",
+            "Bex/{} ({}; {})",
             AppVersion::global(cx),
             std::env::consts::OS,
             std::env::consts::ARCH
@@ -1684,7 +1690,7 @@ fn stdout_is_a_pty() -> bool {
 }
 
 #[derive(Parser, Debug)]
-#[command(name = "zed", disable_version_flag = true, max_term_width = 100)]
+#[command(name = "bex", disable_version_flag = true, max_term_width = 100)]
 struct Args {
     /// A sequence of space-separated paths or urls that you want to open.
     ///
@@ -1702,9 +1708,9 @@ struct Args {
     /// Sets a custom directory for all user data (e.g., database, extensions, logs).
     ///
     /// This overrides the default platform-specific data directory location.
-    /// On macOS, the default is `~/Library/Application Support/Zed`.
-    /// On Linux/FreeBSD, the default is `$XDG_DATA_HOME/zed`.
-    /// On Windows, the default is `%LOCALAPPDATA%\Zed`.
+    /// On macOS, the default is `~/Library/Application Support/Bex`.
+    /// On Linux/FreeBSD, the default is `$XDG_DATA_HOME/bex`.
+    /// On Windows, the default is `%LOCALAPPDATA%\Bex`.
     #[arg(long, value_name = "DIR", verbatim_doc_comment)]
     user_data_dir: Option<String>,
 
@@ -1806,6 +1812,7 @@ fn parse_url_arg(arg: &str, cx: &App) -> String {
         Ok(path) => format!("file://{}", path.display()),
         Err(_) => {
             if arg.starts_with("file://")
+                || arg.starts_with("bex://")
                 || arg.starts_with("zed://")
                 || arg.starts_with("zed-cli://")
                 || arg.starts_with("ssh://")

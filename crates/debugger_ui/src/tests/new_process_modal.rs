@@ -408,7 +408,7 @@ async fn test_dap_adapter_config_conversion_and_validation(cx: &mut TestAppConte
             .await
             .unwrap_or_else(|_| {
                 panic!(
-                    "Adapter {} should successfully convert from Zed format",
+                    "Adapter {} should successfully convert from Bex format",
                     adapter_name
                 )
             });

@@ -227,6 +227,11 @@ impl ThemeRegistry {
 
     /// Returns the icon theme with the specified name.
     pub fn get_icon_theme(&self, name: &str) -> Result<Arc<IconTheme>, IconThemeNotFoundError> {
+        let name = if name == "Zed (Default)" {
+            DEFAULT_ICON_THEME_NAME
+        } else {
+            name
+        };
         self.state
             .read()
             .icon_themes

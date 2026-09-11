@@ -71,10 +71,10 @@ def asset_names(system, architecture):
     if system not in SYSTEMS or architecture not in ARCHITECTURES:
         raise ValueError("Unsupported release platform")
     if system == "linux":
-        desktop = f"zed-linux-{architecture}.tar.gz"
+        desktop = f"bex-linux-{architecture}.tar.gz"
     else:
-        desktop = f"Zed-{architecture}.{'dmg' if system == 'macos' else 'exe'}"
-    remote = f"zed-remote-server-{system}-{architecture}.{'zip' if system == 'windows' else 'gz'}"
+        desktop = f"Bex-{architecture}.{'dmg' if system == 'macos' else 'exe'}"
+    remote = f"bex-remote-server-{system}-{architecture}.{'zip' if system == 'windows' else 'gz'}"
     return desktop, remote
 
 

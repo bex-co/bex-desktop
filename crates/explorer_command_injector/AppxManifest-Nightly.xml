@@ -14,7 +14,7 @@
   IgnorableNamespaces="uap uap2 uap3 rescap desktop desktop4 desktop5 desktop6 uap10 com">
   <!-- TODO: Use Zed's signature here. -->
   <Identity
-    Name="ZedIndustries.Zed.Nightly"
+    Name="BexCo.BexDesktop.Nightly"
     Publisher="CN=Zed Industries Inc, O=Zed Industries Inc, L=Denver, S=Colorado, C=US"
     Version="1.0.0.0" />
   <Properties>
@@ -38,7 +38,7 @@
   </Capabilities>
   <Applications>
     <Application Id="ZedNightly"
-      Executable="Zed.exe"
+      Executable="Bex.exe"
       uap10:TrustLevel="mediumIL"
       uap10:RuntimeBehavior="win32App">
       <uap:VisualElements

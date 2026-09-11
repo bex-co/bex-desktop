@@ -395,7 +395,7 @@ impl InstallerDir {
     async fn new() -> Result<Self> {
         let installer_dir = std::env::current_exe()?
             .parent()
-            .context("No parent dir for Zed.exe")?
+            .context("No parent dir for Bex.exe")?
             .join("updates");
         if smol::fs::metadata(&installer_dir).await.is_ok() {
             smol::fs::remove_dir_all(&installer_dir).await?;
@@ -611,7 +611,7 @@ impl AutoUpdater {
             &this,
             release_channel,
             version,
-            "zed-remote-server",
+            "bex-remote-server",
             os,
             arch,
             cx,
@@ -663,7 +663,7 @@ impl AutoUpdater {
         })?;
 
         let release =
-            Self::get_release_asset(&this, channel, version, "zed-remote-server", os, arch, cx)
+            Self::get_release_asset(&this, channel, version, "bex-remote-server", os, arch, cx)
                 .await?;
 
         Ok(Some(release.url))
@@ -754,7 +754,7 @@ impl AutoUpdater {
         });
 
         let fetched_release_data =
-            Self::get_release_asset(&this, release_channel, None, "zed", OS, ARCH, cx).await?;
+            Self::get_release_asset(&this, release_channel, None, "bex", OS, ARCH, cx).await?;
         let fetched_version = fetched_release_data.clone().version;
         let app_commit_sha = Ok(cx.update(|cx| AppCommitSha::try_global(cx).map(|sha| sha.full())));
         let newer_version = Self::check_if_fetched_version_is_newer(
@@ -915,9 +915,9 @@ impl AutoUpdater {
 
     async fn target_path(installer_dir: &InstallerDir) -> Result<PathBuf> {
         let filename = match OS {
-            "macos" => anyhow::Ok("Zed.dmg"),
-            "linux" => Ok("zed.tar.gz"),
-            "windows" => Ok("Zed.exe"),
+            "macos" => anyhow::Ok("Bex.dmg"),
+            "linux" => Ok("bex.tar.gz"),
+            "windows" => Ok("Bex.exe"),
             unsupported_os => anyhow::bail!("not supported: {unsupported_os}"),
         }?;
 
@@ -1133,7 +1133,7 @@ async fn install_release_linux(
 ) -> Result<Option<PathBuf>> {
     let home_dir = PathBuf::from(env::var("HOME").context("no HOME env var set")?);
 
-    let extracted = temp_dir.path().join("zed");
+    let extracted = temp_dir.path().join("bex");
     fs::create_dir_all(&extracted)
         .await
         .context("failed to create directory into which to extract update")?;
@@ -1161,17 +1161,17 @@ async fn install_release_linux(
     } else {
         String::default()
     };
-    let app_folder_name = format!("zed{}.app", suffix);
+    let app_folder_name = format!("bex{}.app", suffix);
 
     let from = extracted.join(&app_folder_name);
     let mut to = home_dir.join(".local");
 
-    let expected_suffix = format!("{}/libexec/zed-editor", app_folder_name);
+    let expected_suffix = format!("{}/libexec/bex-editor", app_folder_name);
 
-    if let Some(prefix) = running_app_path
-        .to_str()
-        .and_then(|str| str.strip_suffix(&expected_suffix))
-    {
+    if let Some(prefix) = running_app_path.to_str().and_then(|path| {
+        path.strip_suffix(&expected_suffix)
+            .or_else(|| path.strip_suffix(&format!("zed{suffix}.app/libexec/zed-editor")))
+    }) {
         to = PathBuf::from(prefix);
     }
 
@@ -1184,7 +1184,7 @@ async fn install_release_linux(
 
     anyhow::ensure!(
         output.status.success(),
-        "failed to copy Zed update from {:?} to {:?}: {:?}",
+        "failed to copy Bex update from {:?} to {:?}: {:?}",
         from,
         to,
         String::from_utf8_lossy(&output.stderr)
@@ -1201,15 +1201,15 @@ async fn install_release_macos(
 ) -> Result<Option<PathBuf>> {
     // The installed bundle may still be named Zed.app after updating an older Bex build.
     let bundled_app_filename = format!("{}.app", release_channel::RELEASE_CHANNEL.display_name());
-    let mount_path = temp_dir.path().join("Zed");
+    let mount_path = temp_dir.path().join("Bex");
     let mut mounted_app_path: OsString = mount_path.join(bundled_app_filename).into();
 
     mounted_app_path.push("/");
     let mut cmd = new_command("hdiutil");
     cmd.args(["attach", "-nobrowse"])
         .arg(&downloaded_dmg)
-        .arg("-mountroot")
-        .arg(temp_dir.path());
+        .arg("-mountpoint")
+        .arg(&mount_path);
     let output = cmd
         .output()
         .await
@@ -1296,7 +1296,7 @@ async fn cleanup_stale_installer_dirs() {
 async fn cleanup_windows() -> Result<()> {
     let parent = std::env::current_exe()?
         .parent()
-        .context("No parent dir for Zed.exe")?
+        .context("No parent dir for Bex.exe")?
         .to_owned();
 
     // keep in sync with crates/auto_update_helper/src/updater.rs
@@ -1308,7 +1308,10 @@ async fn cleanup_windows() -> Result<()> {
 }
 
 async fn install_release_windows(downloaded_installer: &Path) -> Result<Option<PathBuf>> {
+    let executable = std::env::current_exe()?;
+    let install_directory = executable.parent().context("No parent dir for Bex.exe")?;
     let mut cmd = new_command(downloaded_installer);
+    cmd.arg(format!("/DIR={}", install_directory.display()));
     cmd.arg("/verysilent")
         .arg("/update=true")
         .arg("/MERGETASKS=!desktopicon");
@@ -1323,7 +1326,7 @@ async fn install_release_windows(downloaded_installer: &Path) -> Result<Option<P
     // deleting the old one, and launching the new binary.
     let helper_path = std::env::current_exe()?
         .parent()
-        .context("No parent dir for Zed.exe")?
+        .context("No parent dir for Bex.exe")?
         .join("tools")
         .join("auto_update_helper.exe");
     Ok(Some(helper_path))
@@ -1477,7 +1480,7 @@ mod tests {
             let tmp_dir = tmp_dir.clone();
             cx.set_global(InstallOverride(Rc::new(move |target_path, _cx| {
                 let tmp_dir = tmp_dir.clone();
-                let dest_path = tmp_dir.path().join("zed");
+                let dest_path = tmp_dir.path().join("bex");
                 std::fs::copy(&target_path, &dest_path)?;
                 Ok(Some(dest_path))
             })));
@@ -1503,7 +1506,7 @@ mod tests {
         let (path, arguments) = will_restart.await.unwrap();
         assert!(arguments.is_empty());
         let path = path.unwrap();
-        assert_eq!(path, tmp_dir.path().join("zed"));
+        assert_eq!(path, tmp_dir.path().join("bex"));
         assert_eq!(std::fs::read_to_string(path).unwrap(), "<fake-zed-update>");
     }
 

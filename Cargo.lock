@@ -12658,6 +12658,8 @@ dependencies = [
  "const_format",
  "dirs",
  "ignore",
+ "sqlez",
+ "tempfile",
  "util",
 ]
 
@@ -22739,7 +22741,7 @@ dependencies = [
 
 [[package]]
 name = "zed"
-version = "1.20.0-bex.4"
+version = "1.20.0-bex.5"
 dependencies = [
  "acp_thread",
  "acp_tools",

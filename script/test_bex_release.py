@@ -76,9 +76,9 @@ class ReleaseTests(unittest.TestCase):
                 os.chdir(previous)
 
     def test_matches_website_artifact_contract(self):
-        self.assertEqual(release.asset_names("windows", "aarch64"), ("Zed-aarch64.exe", "zed-remote-server-windows-aarch64.zip"))
-        self.assertEqual(release.asset_names("linux", "x86_64"), ("zed-linux-x86_64.tar.gz", "zed-remote-server-linux-x86_64.gz"))
-        self.assertEqual(release.asset_names("macos", "aarch64"), ("Zed-aarch64.dmg", "zed-remote-server-macos-aarch64.gz"))
+        self.assertEqual(release.asset_names("windows", "aarch64"), ("Bex-aarch64.exe", "bex-remote-server-windows-aarch64.zip"))
+        self.assertEqual(release.asset_names("linux", "x86_64"), ("bex-linux-x86_64.tar.gz", "bex-remote-server-linux-x86_64.gz"))
+        self.assertEqual(release.asset_names("macos", "aarch64"), ("Bex-aarch64.dmg", "bex-remote-server-macos-aarch64.gz"))
         self.assertEqual(len(release.expected_assets()), 12)
 
     def test_collects_linux_installer_from_bundle_output(self):
@@ -87,11 +87,11 @@ class ReleaseTests(unittest.TestCase):
             try:
                 os.chdir(temporary)
                 Path("target/release").mkdir(parents=True)
-                Path("target/release/zed-linux-x86_64.tar.gz").write_bytes(b"installer")
-                Path("target/zed-remote-server-linux-x86_64.gz").write_bytes(b"sidecar")
+                Path("target/release/bex-linux-x86_64.tar.gz").write_bytes(b"installer")
+                Path("target/bex-remote-server-linux-x86_64.gz").write_bytes(b"sidecar")
                 release.collect("linux", "x86_64")
-                self.assertEqual(Path("release-artifacts/zed-linux-x86_64.tar.gz").read_bytes(), b"installer")
-                self.assertEqual(Path("release-artifacts/zed-remote-server-linux-x86_64.gz").read_bytes(), b"sidecar")
+                self.assertEqual(Path("release-artifacts/bex-linux-x86_64.tar.gz").read_bytes(), b"installer")
+                self.assertEqual(Path("release-artifacts/bex-remote-server-linux-x86_64.gz").read_bytes(), b"sidecar")
             finally:
                 os.chdir(previous)
 
@@ -101,7 +101,7 @@ class ReleaseTests(unittest.TestCase):
             for name in release.expected_assets():
                 (directory / name).write_bytes(b"signed artifact")
             self.assertEqual(len(release.verify_artifacts(directory)), 12)
-            artifact = directory / "Zed-aarch64.dmg"
+            artifact = directory / "Bex-aarch64.dmg"
             artifact.write_bytes(b"")
             with self.assertRaisesRegex(ValueError, "Empty"):
                 release.verify_artifacts(directory)

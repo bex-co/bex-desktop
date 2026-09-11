@@ -97,7 +97,7 @@ const HELPER_PROVISION_SCRIPT: &str = r#"
 set -eu
 channel="$1"
 version="$2"
-dest="$HOME/.local/libexec/zed/$channel"
+dest="$HOME/.local/libexec/bex/$channel"
 marker="$dest/.zed-wsl-helper-version"
 want="$channel $version"
 
@@ -105,7 +105,7 @@ want="$channel $version"
 # "latest" tag (dev builds), which must always re-fetch so they track the most
 # recent nightly instead of pinning to whatever was downloaded first.
 if [ "$version" != "latest" ] && [ "$(cat "$marker" 2>/dev/null || true)" = "$want" ]; then
-    helper=$(find "$dest" -type f -path '*/libexec/zed-editor' -print 2>/dev/null | head -n 1 || true)
+    helper=$(find "$dest" -type f \( -path '*/libexec/bex-editor' -o -path '*/libexec/zed-editor' \) -print 2>/dev/null | head -n 1 || true)
     if [ -n "$helper" ] && [ -x "$helper" ]; then
         printf 'zed-wsl-helper: %s\n' "$helper"
         exit 0
@@ -118,7 +118,7 @@ case "$arch" in
     aarch64 | arm64) arch="aarch64" ;;
     *) echo "unsupported WSL architecture for the zed sandbox helper: $arch" >&2; exit 1 ;;
 esac
-url="https://bex.co/releases/$channel/$version/download?asset=zed&arch=$arch&os=linux&source=zed-wsl-sandbox"
+url="https://bex.co/releases/$channel/$version/download?asset=bex&arch=$arch&os=linux&source=zed-wsl-sandbox"
 
 tmp=$(mktemp -d "${TMPDIR:-/tmp}/zed-wsl-helper-XXXXXX")
 trap 'rm -rf "$tmp"' EXIT
@@ -134,7 +134,7 @@ fi
 
 mkdir -p "$tmp/unpacked"
 tar -xzf "$tarball" -C "$tmp/unpacked"
-helper_src=$(find "$tmp/unpacked" -type f -path '*/libexec/zed-editor' -print 2>/dev/null | head -n 1 || true)
+helper_src=$(find "$tmp/unpacked" -type f \( -path '*/libexec/bex-editor' -o -path '*/libexec/zed-editor' \) -print 2>/dev/null | head -n 1 || true)
 if [ -z "$helper_src" ]; then
     echo 'the downloaded zed tarball did not contain a libexec/zed-editor binary' >&2
     exit 1
@@ -153,7 +153,7 @@ mv "$dest.new" "$dest"
 rm -rf "$dest.old"
 printf '%s' "$want" > "$marker"
 
-helper=$(find "$dest" -type f -path '*/libexec/zed-editor' -print 2>/dev/null | head -n 1 || true)
+helper=$(find "$dest" -type f \( -path '*/libexec/bex-editor' -o -path '*/libexec/zed-editor' \) -print 2>/dev/null | head -n 1 || true)
 if [ -z "$helper" ] || [ ! -x "$helper" ]; then
     echo "the installed zed sandbox helper is missing or not executable under $dest" >&2
     exit 1

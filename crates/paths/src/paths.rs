@@ -15,7 +15,7 @@ pub const EDITORCONFIG_NAME: &str = ".editorconfig";
 /// and state directory paths.
 ///
 /// Forks should change this to avoid colliding with Zed's user data.
-pub const APP_NAME: &str = "Zed";
+pub const APP_NAME: &str = "Bex";
 
 /// Lowercased form of [`APP_NAME`], for use in XDG-style paths on
 /// Linux/FreeBSD and the macOS `~/.config` fallback.
@@ -68,7 +68,7 @@ static CONFIG_DIR: OnceLock<PathBuf> = OnceLock::new();
 /// Returns the relative path to the zed_server directory on the ssh host.
 pub fn remote_server_dir_relative() -> &'static RelPath {
     static CACHED: LazyLock<&'static RelPath> =
-        LazyLock::new(|| RelPath::from_unix_str(".zed_server").unwrap());
+        LazyLock::new(|| RelPath::from_unix_str(".bex_server").unwrap());
     *CACHED
 }
 
@@ -76,7 +76,7 @@ pub fn remote_server_dir_relative() -> &'static RelPath {
 /// Returns the relative path to the zed_wsl_server directory on the wsl host.
 pub fn remote_wsl_server_dir_relative() -> &'static RelPath {
     static CACHED: LazyLock<&'static RelPath> =
-        LazyLock::new(|| RelPath::from_unix_str(".zed_wsl_server").unwrap());
+        LazyLock::new(|| RelPath::from_unix_str(".bex_wsl_server").unwrap());
     *CACHED
 }
 
@@ -116,6 +116,108 @@ pub fn set_custom_data_dir(dir: &str) -> &'static PathBuf {
         // don't choke on the verbatim syntax.
         SanitizedPath::new(&canonicalized).as_path().to_path_buf()
     })
+}
+
+/// Copies the shared legacy profile on first Bex launch, leaving the original intact.
+pub fn migrate_legacy_profile() -> std::io::Result<()> {
+    if CUSTOM_DATA_DIR.get().is_some() {
+        return Ok(());
+    }
+    for destination in [config_dir(), data_dir(), state_dir()] {
+        let legacy_name = if cfg!(target_os = "windows")
+            || (cfg!(target_os = "macos") && destination != config_dir())
+        {
+            "Zed"
+        } else {
+            "zed"
+        };
+        let source = destination.with_file_name(legacy_name);
+        copy_legacy_profile(&source, destination)?;
+    }
+    Ok(())
+}
+
+fn copy_legacy_profile(source: &Path, destination: &Path) -> std::io::Result<()> {
+    if destination.try_exists()? || !source.try_exists()? {
+        return Ok(());
+    }
+    let parent = destination.parent().ok_or_else(|| {
+        std::io::Error::new(
+            std::io::ErrorKind::InvalidInput,
+            "Missing profile parent directory",
+        )
+    })?;
+    std::fs::create_dir_all(parent)?;
+    let staging = parent.join(format!(".bex-profile-migration-{}", std::process::id()));
+    std::fs::create_dir(&staging)?;
+    let result = copy_profile_contents(source, &staging).and_then(|()| {
+        std::fs::set_permissions(&staging, std::fs::metadata(source)?.permissions())?;
+        // A concurrent launch must never overwrite a profile created while copying.
+        if destination.try_exists()? {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::AlreadyExists,
+                "Another Bex instance created the profile during migration",
+            ));
+        }
+        std::fs::rename(&staging, destination)
+    });
+    if result.is_err() {
+        if let Err(error) = std::fs::remove_dir_all(&staging) {
+            eprintln!("Could not remove incomplete Bex profile copy: {error}");
+        }
+    }
+    result
+}
+
+fn copy_profile_contents(source: &Path, destination: &Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(source)? {
+        let entry = entry?;
+        let source = entry.path();
+        let destination = destination.join(entry.file_name());
+        let file_type = entry.file_type()?;
+        if file_type.is_symlink() {
+            let target = std::fs::read_link(&source)?;
+            #[cfg(unix)]
+            std::os::unix::fs::symlink(target, destination)?;
+            #[cfg(windows)]
+            if source.is_dir() {
+                std::os::windows::fs::symlink_dir(target, destination)?;
+            } else {
+                std::os::windows::fs::symlink_file(target, destination)?;
+            }
+        } else if file_type.is_dir() {
+            std::fs::create_dir(&destination)?;
+            copy_profile_contents(&source, &destination)?;
+            std::fs::set_permissions(&destination, entry.metadata()?.permissions())?;
+        } else if file_type.is_file() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.ends_with(".sqlite-wal") || name.ends_with(".sqlite-shm") {
+                continue;
+            }
+            if source
+                .extension()
+                .is_some_and(|extension| extension == "sqlite")
+            {
+                // Copying SQLite files directly can lose committed WAL data from a running editor.
+                let original = sqlez::connection::Connection::open_file(&source.to_string_lossy());
+                let snapshot =
+                    sqlez::connection::Connection::open_file(&destination.to_string_lossy());
+                if !original.persistent() || !snapshot.persistent() {
+                    return Err(std::io::Error::other(
+                        "Could not open profile database for migration",
+                    ));
+                }
+                original
+                    .backup_main(&snapshot)
+                    .map_err(std::io::Error::other)?;
+            } else {
+                std::fs::copy(source, destination)?;
+            }
+        }
+        // Sockets and other transient IPC nodes belong to the old running process.
+    }
+    Ok(())
 }
 
 /// Returns the path to the configuration directory used by Zed.
@@ -634,4 +736,79 @@ pub fn global_gitignore_path() -> Option<PathBuf> {
     GLOBAL_GITIGNORE_PATH
         .get_or_init(::ignore::gitignore::gitconfig_excludes_path)
         .clone()
+}
+
+#[cfg(test)]
+mod branding_migration_tests {
+    use super::copy_legacy_profile;
+
+    #[test]
+    fn imports_without_modifying_legacy_or_overwriting_bex() -> std::io::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let source = temporary.path().join("Zed");
+        let destination = temporary.path().join("Bex");
+        std::fs::create_dir_all(source.join("db"))?;
+        std::fs::write(source.join("db/settings"), "legacy")?;
+        copy_legacy_profile(&source, &destination)?;
+        assert_eq!(
+            std::fs::read_to_string(destination.join("db/settings"))?,
+            "legacy"
+        );
+        std::fs::write(destination.join("db/settings"), "bex")?;
+        copy_legacy_profile(&source, &destination)?;
+        assert_eq!(
+            std::fs::read_to_string(destination.join("db/settings"))?,
+            "bex"
+        );
+        assert_eq!(
+            std::fs::read_to_string(source.join("db/settings"))?,
+            "legacy"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn snapshots_committed_wal_data_from_an_open_database() -> Result<(), Box<dyn std::error::Error>>
+    {
+        let temporary = tempfile::tempdir()?;
+        let source = temporary.path().join("Zed");
+        let destination = temporary.path().join("Bex");
+        std::fs::create_dir(&source)?;
+        let original =
+            sqlez::connection::Connection::open_file(&source.join("db.sqlite").to_string_lossy());
+        original.exec("PRAGMA journal_mode=WAL;")?()?;
+        original.exec("CREATE TABLE settings (value TEXT);")?()?;
+        original.exec("INSERT INTO settings VALUES ('legacy');")?()?;
+        assert!(source.join("db.sqlite-wal").exists());
+        copy_legacy_profile(&source, &destination)?;
+        let snapshot = sqlez::connection::Connection::open_file(
+            &destination.join("db.sqlite").to_string_lossy(),
+        );
+        assert_eq!(
+            snapshot.select::<String>("SELECT value FROM settings;")?()?,
+            vec!["legacy"]
+        );
+        original.exec("INSERT INTO settings VALUES ('later');")?()?;
+        assert_eq!(
+            snapshot.select::<String>("SELECT value FROM settings;")?()?,
+            vec!["legacy"]
+        );
+        Ok(())
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn preserves_symlinks_without_following_them() -> std::io::Result<()> {
+        let temporary = tempfile::tempdir()?;
+        let source = temporary.path().join("Zed");
+        let destination = temporary.path().join("Bex");
+        std::fs::create_dir(&source)?;
+        std::os::unix::fs::symlink("missing", source.join("linked"))?;
+        copy_legacy_profile(&source, &destination)?;
+        assert_eq!(
+            std::fs::read_link(destination.join("linked"))?,
+            std::path::Path::new("missing")
+        );
+        Ok(())
+    }
 }

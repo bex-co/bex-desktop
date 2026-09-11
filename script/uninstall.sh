@@ -11,7 +11,7 @@ check_remaining_installations() {
         [ "$remaining" -eq 0 ]
     else
         # Check for any Zed variants in ~/.local
-        remaining=$(ls -d "$HOME/.local/zed"*.app 2>/dev/null | wc -l)
+        remaining=$(ls -d "$HOME/.local/bex"*.app 2>/dev/null | wc -l)
         [ "$remaining" -eq 0 ]
     fi
 }
@@ -21,7 +21,7 @@ prompt_remove_preferences() {
     read -r response
     case "$response" in
         [nN]|[nN][oO])
-            rm -rf "$HOME/.config/zed"
+            rm -rf "$HOME/.config/bex"
             echo "Preferences removed."
             ;;
         *)
@@ -32,7 +32,7 @@ prompt_remove_preferences() {
 
 main() {
     platform="$(uname -s)"
-    channel="${ZED_CHANNEL:-stable}"
+    channel="${BEX_CHANNEL:-${ZED_CHANNEL:-stable}}"
 
     if [ "$platform" = "Darwin" ]; then
         platform="macos"
@@ -58,71 +58,75 @@ linux() {
     db_suffix="stable"
     case "$channel" in
       stable)
-        appid="dev.zed.Zed"
+        appid="co.bex.Bex"
         db_suffix="stable"
         ;;
       nightly)
-        appid="dev.zed.Zed-Nightly"
+        appid="co.bex.Bex-Nightly"
         db_suffix="nightly"
         ;;
       preview)
-        appid="dev.zed.Zed-Preview"
+        appid="co.bex.Bex-Preview"
         db_suffix="preview"
         ;;
       dev)
-        appid="dev.zed.Zed-Dev"
+        appid="co.bex.Bex-Dev"
         db_suffix="dev"
         ;;
       *)
         echo "Unknown release channel: ${channel}. Using stable app ID."
-        appid="dev.zed.Zed"
+        appid="co.bex.Bex"
         db_suffix="stable"
         ;;
     esac
 
     # Remove the app directory
-    rm -rf "$HOME/.local/zed$suffix.app"
+    rm -rf "$HOME/.local/bex$suffix.app"
 
     # Remove the binary symlink
-    rm -f "$HOME/.local/bin/zed"
+    if [ -L "$HOME/.local/bin/bex" ]; then
+        case "$(readlink "$HOME/.local/bin/bex")" in
+            "$HOME/.local/bex$suffix.app/bin/"*) rm "$HOME/.local/bin/bex" ;;
+        esac
+    fi
 
     # Remove the .desktop file
     rm -f "$HOME/.local/share/applications/${appid}.desktop"
 
     # Remove the database directory for this channel
-    rm -rf "$HOME/.local/share/zed/db/0-$db_suffix"
+    rm -rf "$HOME/.local/share/bex/db/0-$db_suffix"
 
     # Remove socket file
-    rm -f "$HOME/.local/share/zed/zed-$db_suffix.sock"
+    rm -f "$HOME/.local/share/bex/zed-$db_suffix.sock"
 
     # Remove the entire Zed directory if no installations remain
     if check_remaining_installations; then
-        rm -rf "$HOME/.local/share/zed"
+        rm -rf "$HOME/.local/share/bex"
         prompt_remove_preferences
     fi
 
-    rm -rf $HOME/.zed_server
+    rm -rf $HOME/.bex_server
 }
 
 macos() {
     app="Bex.app"
     db_suffix="stable"
-    app_id="dev.zed.Zed"
+    app_id="co.bex.Bex"
     case "$channel" in
       nightly)
         app="Bex Nightly.app"
         db_suffix="nightly"
-        app_id="dev.zed.Zed-Nightly"
+        app_id="co.bex.Bex-Nightly"
         ;;
       preview)
         app="Bex Preview.app"
         db_suffix="preview"
-        app_id="dev.zed.Zed-Preview"
+        app_id="co.bex.Bex-Preview"
         ;;
       dev)
         app="Bex Dev.app"
         db_suffix="dev"
-        app_id="dev.zed.Zed-Dev"
+        app_id="co.bex.Bex-Dev"
         ;;
     esac
 
@@ -142,10 +146,13 @@ macos() {
     fi
 
     # Remove the binary symlink
-    rm -f "$HOME/.local/bin/zed"
+    if [ -L "$HOME/.local/bin/bex" ] &&
+        [ "$(readlink "$HOME/.local/bin/bex")" = "/Applications/$app/Contents/MacOS/cli" ]; then
+        rm "$HOME/.local/bin/bex"
+    fi
 
     # Remove the database directory for this channel
-    rm -rf "$HOME/Library/Application Support/Zed/db/0-$db_suffix"
+    rm -rf "$HOME/Library/Application Support/Bex/db/0-$db_suffix"
 
     # Remove app-specific files and directories
     rm -rf "$HOME/Library/Application Support/com.apple.sharedfilelist/com.apple.LSSharedFileList.ApplicationRecentDocuments/$app_id.sfl"*
@@ -156,13 +163,13 @@ macos() {
 
     # Remove the entire Zed directory if no installations remain
     if check_remaining_installations; then
-        rm -rf "$HOME/Library/Application Support/Zed"
-        rm -rf "$HOME/Library/Logs/Zed"
+        rm -rf "$HOME/Library/Application Support/Bex"
+        rm -rf "$HOME/Library/Logs/Bex"
 
         prompt_remove_preferences
     fi
 
-    rm -rf $HOME/.zed_server
+    rm -rf $HOME/.bex_server
 }
 
 main "$@"

@@ -1661,7 +1661,7 @@ mod tests {
         };
         assert_eq!(
             tooltip_for_server_binary(&node_server_windows, PathStyle::Windows),
-            "C:\\Users\\Zed\\languages\\basedpyright\\node_modules\\basedpyright\\langserver.index.js (node)"
+            "C:\\Users\\Bex\\languages\\basedpyright\\node_modules\\basedpyright\\langserver.index.js (node)"
         );
 
         let python_server = lsp::LanguageServerBinary {

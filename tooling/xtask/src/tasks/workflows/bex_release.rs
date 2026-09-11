@@ -103,11 +103,10 @@ pub fn bex_release() -> Workflow {
                     .add_with(("node-version", "22")),
             );
         if os == "linux" {
-            job = job
-                .add_step(command(
-                    "Install Linux dependencies",
-                    "sudo apt-get update\nscript/linux",
-                ));
+            job = job.add_step(command(
+                "Install Linux dependencies",
+                "sudo apt-get update\nscript/linux",
+            ));
             if arch == "aarch64" {
                 job = job.add_step(command(
                     "Install and verify ARM compiler runtime",
@@ -150,7 +149,7 @@ $PSNativeCommandUseErrorActionPreference = $true
 Install-Module -Name TrustedSigning -RequiredVersion 0.5.8 -Scope CurrentUser -Force -Repository PSGallery
 Import-Module TrustedSigning
 ./script/bundle-windows.ps1 -Architecture {arch}
-$signature = Get-AuthenticodeSignature "target/Zed-{arch}.exe"
+$signature = Get-AuthenticodeSignature "target/Bex-{arch}.exe"
 if ($signature.Status -ne 'Valid') {{ throw 'Installer signature validation failed' }}"#
                     ))
                     .shell("pwsh"),

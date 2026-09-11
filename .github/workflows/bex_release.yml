@@ -341,7 +341,7 @@ jobs:
         Install-Module -Name TrustedSigning -RequiredVersion 0.5.8 -Scope CurrentUser -Force -Repository PSGallery
         Import-Module TrustedSigning
         ./script/bundle-windows.ps1 -Architecture aarch64
-        $signature = Get-AuthenticodeSignature "target/Zed-aarch64.exe"
+        $signature = Get-AuthenticodeSignature "target/Bex-aarch64.exe"
         if ($signature.Status -ne 'Valid') { throw 'Installer signature validation failed' }
       shell: pwsh
     - name: Collect release artifacts
@@ -399,7 +399,7 @@ jobs:
         Install-Module -Name TrustedSigning -RequiredVersion 0.5.8 -Scope CurrentUser -Force -Repository PSGallery
         Import-Module TrustedSigning
         ./script/bundle-windows.ps1 -Architecture x86_64
-        $signature = Get-AuthenticodeSignature "target/Zed-x86_64.exe"
+        $signature = Get-AuthenticodeSignature "target/Bex-x86_64.exe"
         if ($signature.Status -ne 'Valid') { throw 'Installer signature validation failed' }
       shell: pwsh
     - name: Collect release artifacts

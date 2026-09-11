@@ -39,7 +39,7 @@ CloseApplications=force
 SignTool=Defaultsign
 #endif
 
-DefaultDirName={autopf}\{#AppName}
+DefaultDirName={code:GetDefaultInstallDir}
 PrivilegesRequired=lowest
 
 ArchitecturesAllowed=x64compatible
@@ -69,7 +69,7 @@ Name: "addtopath"; Description: "{cm:AddToPath}"; GroupDescription: "{cm:Other}"
 Name: "{app}"; AfterInstall: DisableAppDirInheritance
 
 [Files]
-Source: "{#ResourcesDir}\Zed.exe"; DestDir: "{code:GetInstallDir}"; Flags: ignoreversion
+Source: "{#ResourcesDir}\Bex.exe"; DestDir: "{code:GetInstallDir}"; Flags: ignoreversion
 Source: "{#ResourcesDir}\bin\*"; DestDir: "{code:GetInstallDir}\bin"; Flags: ignoreversion
 Source: "{#ResourcesDir}\tools\*"; DestDir: "{app}\tools"; Flags: ignoreversion
 Source: "{#ResourcesDir}\appx\*"; DestDir: "{app}\appx";  BeforeInstall: RemoveAppxPackage; AfterInstall: AddAppxPackage; Flags: ignoreversion; Check: IsWindows11OrLater
@@ -1264,10 +1264,10 @@ Root: HKCU; Subkey: "Software\Classes\Drive\shell\{#RegValueName}\command"; Valu
 Root: HKCU; Subkey: "Environment"; ValueType: expandsz; ValueName: "Path"; ValueData: "{code:AddToPath|{app}\bin}"; Tasks: addtopath; Check: NeedsAddToPath(ExpandConstant('{app}\bin'))
 
 ; URI Scheme
-Root: HKCU; Subkey: "Software\Classes\zed"; ValueType: "string"; ValueData: "URL:zed Protocol"; Flags: uninsdeletekey
-Root: HKCU; Subkey: "Software\Classes\zed"; ValueType: "string"; ValueName: "URL Protocol"; ValueData: ""
-Root: HKCU; Subkey: "Software\Classes\zed\DefaultIcon"; ValueType: "string"; ValueData: "{app}\Zed.exe,1"
-Root: HKCU; Subkey: "Software\Classes\zed\shell\open\command"; ValueType: "string"; ValueData: """{app}\Zed.exe"" ""%1"""
+Root: HKCU; Subkey: "Software\Classes\bex"; ValueType: "string"; ValueData: "URL:bex Protocol"; Flags: uninsdeletekey
+Root: HKCU; Subkey: "Software\Classes\bex"; ValueType: "string"; ValueName: "URL Protocol"; ValueData: ""
+Root: HKCU; Subkey: "Software\Classes\bex\DefaultIcon"; ValueType: "string"; ValueData: "{app}\Bex.exe,1"
+Root: HKCU; Subkey: "Software\Classes\bex\shell\open\command"; ValueType: "string"; ValueData: """{app}\Bex.exe"" ""%1"""
 
 [Code]
 function WizardNotSilent(): Boolean;
@@ -1403,6 +1403,22 @@ end;
 function IsUpdating(): Boolean;
 begin
   Result := SwitchHasValue('update', 'true') and WizardSilent();
+end;
+
+function GetDefaultInstallDir(Param: string): string;
+var
+  LegacyKey, LegacyName, LegacyDirectory: string;
+begin
+  Result := ExpandConstant('{autopf}\{#AppName}');
+  // Older Bex updaters did not pass /DIR and used the upstream installer ID.
+  // Only adopt that location when its registered product is Bex.
+  LegacyKey := 'Software\Microsoft\Windows\CurrentVersion\Uninstall\{#LegacyAppId}_is1';
+  if IsUpdating() and
+     RegQueryStringValue(HKCU, LegacyKey, 'DisplayName', LegacyName) and
+     (CompareText(LegacyName, '{#AppDisplayName}') = 0) and
+     RegQueryStringValue(HKCU, LegacyKey, 'InstallLocation', LegacyDirectory) and
+     FileExists(AddBackslash(LegacyDirectory) + 'Zed.exe') then
+    Result := LegacyDirectory;
 end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
