@@ -1,0 +1,31 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+if [[ $# != 2 ]]; then
+    echo "Usage: $0 <Bex.app> <output.dmg>" >&2
+    exit 1
+fi
+
+app_path=$1
+dmg_path=$2
+bundle_name=$(basename "$app_path")
+
+case "$bundle_name" in
+    Bex.app|"Bex Dev.app"|"Bex Preview.app"|"Bex Nightly.app") ;;
+    *) echo "Expected a Bex application bundle, got: $bundle_name" >&2; exit 1 ;;
+esac
+
+if [[ ! -f "$app_path/Contents/Info.plist" || ! -x "$app_path/Contents/MacOS/bex" ]]; then
+    echo "Incomplete Bex application bundle: $app_path" >&2
+    exit 1
+fi
+
+staging_directory=$(mktemp -d "${TMPDIR:-/tmp}/bex-dmg.XXXXXX")
+trap 'rm -rf "$staging_directory"' EXIT
+chmod 755 "$staging_directory"
+
+ditto "$app_path" "$staging_directory/$bundle_name"
+ln -s /Applications "$staging_directory/Applications"
+mkdir -p "$(dirname "$dmg_path")"
+hdiutil create -volname "${bundle_name%.app}" -srcfolder "$staging_directory" -ov -format UDZO "$dmg_path"
