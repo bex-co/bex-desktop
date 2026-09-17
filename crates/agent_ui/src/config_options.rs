@@ -36,6 +36,7 @@ pub struct ConfigOptionsView {
     agent_server: Rc<dyn AgentServer>,
     fs: Arc<dyn Fs>,
     config_option_ids: Vec<acp::SessionConfigId>,
+    show_extra_options: bool,
     _refresh_task: Task<()>,
 }
 
@@ -69,6 +70,7 @@ impl ConfigOptionsView {
             agent_server,
             fs,
             config_option_ids,
+            show_extra_options: false,
             _refresh_task: refresh_task,
         }
     }
@@ -253,6 +255,7 @@ impl ConfigOptionsView {
         config_options
             .config_options()
             .into_iter()
+            .filter(is_selectable)
             .map(|option| {
                 let config_options = config_options.clone();
                 let agent_server = agent_server.clone();
@@ -273,16 +276,45 @@ impl ConfigOptionsView {
 }
 
 impl Render for ConfigOptionsView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         if self.selectors.is_empty() {
             return div().into_any_element();
         }
+
+        // Agents may advertise any number of extra selects. Only the categories
+        // the panel knows where to put earn a permanent chip; the rest stay one
+        // click away so the row keeps the shape it has for every other agent.
+        let (primary, extra): (Vec<_>, Vec<_>) = self
+            .selectors
+            .iter()
+            .cloned()
+            .partition(|selector| selector.read(cx).has_category());
 
         h_flex()
             .min_w_0()
             .flex_wrap()
             .gap_1()
-            .children(self.selectors.iter().cloned())
+            .children(primary)
+            .when(!extra.is_empty(), |this| {
+                let expanded = self.show_extra_options;
+                let count = extra.len();
+                this.child(
+                    IconButton::new("config-options-extra", IconName::Ellipsis)
+                        .icon_size(IconSize::Small)
+                        .icon_color(Color::Muted)
+                        .toggle_state(expanded)
+                        .tooltip(Tooltip::text(if expanded {
+                            "Hide agent settings".to_string()
+                        } else {
+                            format!("{count} more agent settings")
+                        }))
+                        .on_click(cx.listener(|this, _, _, cx| {
+                            this.show_extra_options = !this.show_extra_options;
+                            cx.notify();
+                        })),
+                )
+                .when(expanded, |this| this.children(extra))
+            })
             .into_any_element()
     }
 }
@@ -370,26 +402,17 @@ impl ConfigOptionSelector {
         &self.config_id
     }
 
+    fn has_category(&self) -> bool {
+        self.current_option()
+            .is_some_and(|option| option.category.is_some())
+    }
+
     fn toggle_picker(&self, window: &mut Window, cx: &mut Context<Self>) -> bool {
         if let Some(picker_handle) = &self.picker_handle {
             picker_handle.toggle(window, cx);
             true
         } else {
             false
-        }
-    }
-
-    fn current_value_name(&self) -> String {
-        let Some(option) = self.current_option() else {
-            return "Unknown".to_string();
-        };
-
-        match &option.kind {
-            acp::SessionConfigKind::Select(select) => {
-                find_option_name(&select.options, &select.current_value)
-                    .unwrap_or_else(|| "Unknown".to_string())
-            }
-            _ => "Unknown".to_string(),
         }
     }
 
@@ -422,18 +445,9 @@ impl ConfigOptionSelector {
             IconName::ChevronDown
         };
 
-        let value_name = self.current_value_name();
-        let mut graphemes = value_name.graphemes(true);
-        let truncated = graphemes.by_ref().take(32).collect::<String>();
-        let display_name = if graphemes.next().is_some() {
-            format!("{truncated}…")
-        } else {
-            truncated
-        };
-
         Button::new(
             ElementId::Name(format!("config-option-{}", option.id.0).into()),
-            display_name,
+            trigger_label(&option),
         )
         .label_size(LabelSize::Small)
         .color(Color::Muted)
@@ -1082,6 +1096,46 @@ fn find_option_name(
     }
 }
 
+/// A select the agent offers no alternative for is a dropdown that cannot be
+/// used. Categorized options stay regardless: the panel gives them a fixed
+/// place, and a single-entry model catalog still has to show the model in use.
+fn is_selectable(option: &acp::SessionConfigOption) -> bool {
+    match &option.kind {
+        acp::SessionConfigKind::Select(_) => {
+            option.category.is_some() || count_config_options(option) >= 2
+        }
+        _ => true,
+    }
+}
+
+/// The chip shows the chosen value, not the option, which is only unambiguous
+/// for the categories the panel gives a known place and meaning. Anything else
+/// carries its own name, or a row of agent-specific selects all reading
+/// "enabled" is indistinguishable.
+fn trigger_label(option: &acp::SessionConfigOption) -> String {
+    let value = match &option.kind {
+        acp::SessionConfigKind::Select(select) => {
+            find_option_name(&select.options, &select.current_value)
+        }
+        _ => None,
+    };
+    let value = truncate_graphemes(&value.unwrap_or_else(|| "Unknown".to_string()), 32);
+    match &option.category {
+        Some(_) => value,
+        None => format!("{}: {}", truncate_graphemes(&option.name, 24), value),
+    }
+}
+
+fn truncate_graphemes(text: &str, max: usize) -> String {
+    let mut graphemes = text.graphemes(true);
+    let truncated = graphemes.by_ref().take(max).collect::<String>();
+    if graphemes.next().is_some() {
+        format!("{truncated}…")
+    } else {
+        truncated
+    }
+}
+
 fn count_config_options(option: &acp::SessionConfigOption) -> usize {
     match &option.kind {
         acp::SessionConfigKind::Select(select) => match &select.options {
@@ -1132,6 +1186,7 @@ mod tests {
                 selectors: Vec::new(),
                 agent_server,
                 fs,
+                show_extra_options: false,
                 _refresh_task: Task::ready(()),
             });
 
@@ -1175,6 +1230,7 @@ mod tests {
                 selectors: Vec::new(),
                 agent_server,
                 fs,
+                show_extra_options: false,
                 _refresh_task: Task::ready(()),
             });
 
@@ -1228,6 +1284,7 @@ mod tests {
                 selectors: Vec::new(),
                 agent_server,
                 fs,
+                show_extra_options: false,
                 _refresh_task: Task::ready(()),
             });
 
@@ -1276,6 +1333,157 @@ mod tests {
         });
 
         assert!(!handled);
+    }
+
+    #[gpui::test]
+    fn select_without_an_alternative_gets_no_chip(cx: &mut TestAppContext) {
+        let agent_server = Rc::new(TestAgentServer::default());
+        let config_options = Rc::new(TestSessionConfigOptions::new(vec![
+            acp::SessionConfigOption::select(
+                "sandbox",
+                "OS sandbox",
+                "enabled",
+                vec![acp::SessionConfigSelectOption::new("enabled", "enabled")],
+            ),
+            // A one-model catalog still has to show which model is in use.
+            acp::SessionConfigOption::select(
+                "model",
+                "Model",
+                "only-model",
+                vec![acp::SessionConfigSelectOption::new(
+                    "only-model",
+                    "Only Model",
+                )],
+            )
+            .category(acp::SessionConfigOptionCategory::Model),
+            acp::SessionConfigOption::select(
+                "shell",
+                "Workspace shell",
+                "enabled",
+                vec![
+                    acp::SessionConfigSelectOption::new("enabled", "enabled"),
+                    acp::SessionConfigSelectOption::new("disabled", "disabled"),
+                ],
+            ),
+            acp::SessionConfigOption::boolean("web_search", "Web Search", false),
+        ]));
+        let fs: Arc<dyn Fs> = FakeFs::new(cx.executor());
+        let cx = cx.add_empty_window();
+        let view = cx.update({
+            move |window, cx| {
+                let config_options: Rc<dyn AgentSessionConfigOptions> = config_options;
+                let agent_server: Rc<dyn AgentServer> = agent_server;
+                cx.new(|cx| ConfigOptionsView::new(config_options, agent_server, fs, window, cx))
+            }
+        });
+
+        let rendered = cx.update(|_, cx| {
+            view.read(cx)
+                .selectors
+                .iter()
+                .map(|selector| selector.read(cx).config_id().0.to_string())
+                .collect::<Vec<_>>()
+        });
+
+        assert_eq!(
+            rendered,
+            vec![
+                "model".to_string(),
+                "shell".to_string(),
+                "web_search".to_string()
+            ]
+        );
+    }
+
+    /// The chip row renders categorized options inline and hides the rest
+    /// behind the overflow toggle, so which side an option lands on is what
+    /// keeps the row the same shape across agents.
+    #[gpui::test]
+    fn uncategorized_options_are_the_ones_behind_the_overflow(cx: &mut TestAppContext) {
+        let agent_server = Rc::new(TestAgentServer::default());
+        let select = |id: &'static str, name: &'static str| {
+            acp::SessionConfigOption::select(
+                id,
+                name,
+                "a",
+                vec![
+                    acp::SessionConfigSelectOption::new("a", "A"),
+                    acp::SessionConfigSelectOption::new("b", "B"),
+                ],
+            )
+        };
+        let config_options = Rc::new(TestSessionConfigOptions::new(vec![
+            select("mode", "Mode").category(acp::SessionConfigOptionCategory::Mode),
+            select("sandboxNetwork", "Sandbox network"),
+            select("model", "Model").category(acp::SessionConfigOptionCategory::Model),
+            select("shell", "Workspace shell"),
+        ]));
+        let fs: Arc<dyn Fs> = FakeFs::new(cx.executor());
+        let cx = cx.add_empty_window();
+        let view = cx.update({
+            move |window, cx| {
+                let config_options: Rc<dyn AgentSessionConfigOptions> = config_options;
+                let agent_server: Rc<dyn AgentServer> = agent_server;
+                cx.new(|cx| ConfigOptionsView::new(config_options, agent_server, fs, window, cx))
+            }
+        });
+
+        let (primary, extra): (Vec<_>, Vec<_>) = cx.update(|_, cx| {
+            view.read(cx)
+                .selectors
+                .iter()
+                .map(|selector| {
+                    let selector = selector.read(cx);
+                    (selector.config_id().0.to_string(), selector.has_category())
+                })
+                .partition(|(_, has_category)| *has_category)
+        });
+
+        assert_eq!(
+            primary.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            vec!["mode".to_string(), "model".to_string()]
+        );
+        assert_eq!(
+            extra.into_iter().map(|(id, _)| id).collect::<Vec<_>>(),
+            vec!["sandboxNetwork".to_string(), "shell".to_string()]
+        );
+
+        // The toggle starts collapsed, so an agent's extra selects never
+        // change the row's resting height.
+        assert!(!cx.update(|_, cx| view.read(cx).show_extra_options));
+    }
+
+    #[test]
+    fn only_uncategorized_chips_carry_their_option_name() {
+        let select = |id: &'static str, name: &'static str| {
+            acp::SessionConfigOption::select(
+                id,
+                name,
+                "enabled",
+                vec![
+                    acp::SessionConfigSelectOption::new("enabled", "enabled"),
+                    acp::SessionConfigSelectOption::new("disabled", "disabled"),
+                ],
+            )
+        };
+
+        assert_eq!(
+            trigger_label(&select("shell", "Workspace shell")),
+            "Workspace shell: enabled"
+        );
+        assert_eq!(
+            trigger_label(
+                &select("mode", "Mode").category(acp::SessionConfigOptionCategory::Mode)
+            ),
+            "enabled"
+        );
+        assert_eq!(
+            trigger_label(&select(
+                "workspaceWrite",
+                "Non-shell workspace writes that keep going"
+            )),
+            "Non-shell workspace writ…: enabled"
+        );
     }
 
     #[derive(Default)]
