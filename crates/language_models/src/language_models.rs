@@ -448,6 +448,51 @@ mod tests {
             .collect()
     }
 
+    /// The router entry is the one provider Bex ships configured, so a default
+    /// that stops parsing, loses its models, or points somewhere other than the
+    /// router would silently leave users with an empty picker.
+    #[gpui::test]
+    fn test_default_settings_ship_the_bex_router_provider(cx: &mut App) {
+        init_test(cx);
+
+        let settings = crate::AllLanguageModelSettings::get_global(cx);
+        let router = settings
+            .openai_compatible
+            .get("Bex Router")
+            .expect("default settings should configure the Bex Router provider");
+
+        assert!(
+            router.api_url.starts_with("https://router.bex.co/"),
+            "expected a router endpoint, got {}",
+            router.api_url
+        );
+        assert!(
+            !router.available_models.is_empty(),
+            "the router provider ships a starting model list"
+        );
+        for model in &router.available_models {
+            // Router model IDs are vendor-namespaced (`meta/muse-spark-1.3`);
+            // a bare ID would reach the upstream as an unknown model.
+            assert!(
+                model.name.contains('/'),
+                "model `{}` is missing its vendor namespace",
+                model.name
+            );
+            assert!(
+                model.capabilities.tools,
+                "model `{}` would be unusable for agentic work without tools",
+                model.name
+            );
+            assert!(model.max_tokens > 0, "model `{}` needs a context window", model.name);
+        }
+
+        assert_eq!(
+            CompatibleProviders::from_settings(cx).0.get("Bex Router"),
+            Some(&CompatibleProviderKind::OpenAi),
+            "the router entry should register as an OpenAI-compatible provider"
+        );
+    }
+
     #[gpui::test]
     fn test_compatible_provider_id_collision_resolves_when_one_entry_is_removed(cx: &mut App) {
         let (client, credentials_provider) = init_test(cx);

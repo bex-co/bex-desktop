@@ -14,6 +14,56 @@ Use a gateway when you route model requests through a platform such as OpenRoute
 | Amazon Bedrock            | Yes             | Separate config | Separate config  | Uses AWS credentials or Bedrock bearer token |
 | OpenAI-compatible gateway | Yes             | Separate config | Separate config  | Configure base URL, model, and key           |
 
+## Bex Router {#bex-router}
+
+**Bex Router** is configured out of the box. It routes requests through `router.bex.co`, which holds the vendor credentials server-side, so one Bex access key reaches every vendor the router fulfills instead of one key per vendor.
+
+1. Open **Settings → AI → LLM Providers** with {#action agent::OpenSettings} and find the Bex Router row.
+2. Enter your Bex access key.
+
+Bex also reads `BEX_ROUTER_API_KEY` from the local process environment.
+
+The shipped model list is a starting point, not the catalog. Any model ID the router's upstream serves works, so you can add more with `available_models`:
+
+```json [settings]
+{
+  "language_models": {
+    "openai_compatible": {
+      "Bex Router": {
+        "api_url": "https://router.bex.co/meta",
+        "available_models": [
+          {
+            "name": "deepseek/deepseek-reasoner",
+            "display_name": "DeepSeek Reasoner",
+            "max_tokens": 163840,
+            "capabilities": { "tools": true, "images": false }
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+The slug in `api_url` (`/meta` by default) selects the router's metering namespace, not the model. A model billed under a different vendor is still served, but it is metered against the slug's rate table, so keep an eye on which slug you point at if per-vendor billing matters to you.
+
+### Other Bex Router surfaces {#bex-router-native}
+
+Vendors whose native protocol the router also speaks are reached through their own provider rather than Bex Router, by pointing that provider's `api_url` at the matching route:
+
+```json [settings]
+{
+  "language_models": {
+    "anthropic": { "api_url": "https://router.bex.co/anthropic" },
+    "openai": { "api_url": "https://router.bex.co/openai/v1" }
+  }
+}
+```
+
+Enter the same Bex access key in those provider rows. External agents follow the same idea through their own environment — for example Claude Code with `ANTHROPIC_BASE_URL=https://router.bex.co/anthropic` and `ANTHROPIC_AUTH_TOKEN` set to the access key. See [External Agents](./external-agents.md).
+
+Google's provider is not routable this way: it sends the key as a `?key=` query parameter, which the router does not read.
+
 ## OpenRouter {#openrouter}
 
 Use OpenRouter when you want to route Zed AI features through OpenRouter.

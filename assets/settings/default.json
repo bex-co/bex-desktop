@@ -2564,7 +2564,90 @@
     "openai": {
       "api_url": "https://api.openai.com/v1",
     },
-    "openai_compatible": {},
+    // One Bex access key for every vendor the router fulfills through its
+    // shared account. The slug in `api_url` selects the metering namespace, not
+    // the model: any model the router's upstream serves is reachable from it,
+    // and the model ID carries the vendor. Set BEX_ROUTER_API_KEY, or enter the
+    // key in Settings → AI → LLM Providers.
+    "openai_compatible": {
+      "Bex Router": {
+        "api_url": "https://router.bex.co/meta",
+        "available_models": [
+          {
+            "name": "meta/muse-spark-1.3",
+            "display_name": "Muse Spark 1.3",
+            "max_tokens": 1048576,
+            "max_output_tokens": 32768,
+            "capabilities": {
+              "tools": true,
+              "images": true,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+          {
+            "name": "deepseek/deepseek-chat",
+            "display_name": "DeepSeek Chat",
+            "max_tokens": 163840,
+            "max_output_tokens": 32768,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+          {
+            "name": "qwen/qwen3-max",
+            "display_name": "Qwen3 Max",
+            "max_tokens": 262144,
+            "max_output_tokens": 32768,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+          {
+            "name": "moonshotai/kimi-k2-thinking",
+            "display_name": "Kimi K2 Thinking",
+            "max_tokens": 262144,
+            "max_output_tokens": 32768,
+            "capabilities": {
+              "tools": true,
+              "images": false,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+          {
+            "name": "anthropic/claude-sonnet-5",
+            "display_name": "Claude Sonnet 5",
+            "max_tokens": 200000,
+            "max_output_tokens": 64000,
+            "capabilities": {
+              "tools": true,
+              "images": true,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+          {
+            "name": "x-ai/grok-4.3",
+            "display_name": "Grok 4.3",
+            "max_tokens": 256000,
+            "max_output_tokens": 32768,
+            "capabilities": {
+              "tools": true,
+              "images": true,
+              "parallel_tool_calls": true,
+              "prompt_cache_key": false,
+            },
+          },
+        ],
+      },
+    },
     "opencode": {
       "api_url": "https://opencode.ai/zen",
     },
@@ -2861,14 +2944,13 @@
   // Configures context servers for use by the agent.
   "context_servers": {},
   // Configures agent servers available in the agent panel.
-  // bex white-label: ships the Muse Code agent out of the box. It is launched
-  // via npx from the @bex-co/muse-code-acp package, which bridges Bex's ACP
-  // (stdio) to the Muse Session Protocol and authenticates against bex.co.
+  // Muse Code requires Node.js >= 22 and the Muse CLI 1.1.1-R2514.1 with `muse serve`.
+  // Authenticate with `muse login` or META_API_KEY.
   "agent_servers": {
     "Muse Code": {
       "type": "custom",
       "command": "npx",
-      "args": ["-y", "@bex-co/muse-code-acp"],
+      "args": ["-y", "@bex-co/muse-code-acp@0.6.0"],
       "env": {}
     }
   },
