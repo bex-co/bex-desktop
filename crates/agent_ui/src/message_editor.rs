@@ -30,7 +30,6 @@ use gpui::{
 };
 use language::{Buffer, language_settings::InlayHintKind};
 use parking_lot::RwLock;
-use project::AgentId;
 use project::{
     CompletionIntent, InlayHint, InlayHintLabel, InlayId, Project, ProjectPath, Worktree,
 };
@@ -205,7 +204,6 @@ pub struct MessageEditor {
     workspace: WeakEntity<Workspace>,
     session_capabilities: SharedSessionCapabilities,
     local_commands: SharedLocalCommands,
-    agent_id: AgentId,
     thread_store: Option<Entity<ThreadStore>>,
     _subscriptions: Vec<Subscription>,
     _parse_slash_command_task: Task<()>,
@@ -453,7 +451,6 @@ impl MessageEditor {
         project: WeakEntity<Project>,
         thread_store: Option<Entity<ThreadStore>>,
         session_capabilities: SharedSessionCapabilities,
-        agent_id: AgentId,
         placeholder: &str,
         mode: EditorMode,
         window: &mut Window,
@@ -607,7 +604,6 @@ impl MessageEditor {
             workspace,
             session_capabilities,
             local_commands,
-            agent_id,
             thread_store,
             _subscriptions: subscriptions,
             _parse_slash_command_task: Task::ready(()),
@@ -616,6 +612,29 @@ impl MessageEditor {
 
     pub fn set_local_commands(&self, commands: Vec<PromptLocalCommand>) {
         *self.local_commands.write() = commands;
+    }
+
+    /// If the draft is exactly one local command, clear it and report which.
+    ///
+    /// Confirming a local command from the completion popup is not the only way
+    /// to run one: someone who knows the command types it and presses enter,
+    /// and that has to do the same thing rather than prompt the agent with
+    /// `/clear`. An argument means the text was meant for the agent, so
+    /// `/clear the build directory` is left alone.
+    pub fn take_local_command(
+        &mut self,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) -> Option<PromptLocalCommand> {
+        let text = self.editor.read(cx).text(cx);
+        let keyword = text.trim().strip_prefix('/')?;
+        let command = *self
+            .local_commands
+            .read()
+            .iter()
+            .find(|command| command.keyword() == keyword)?;
+        self.clear(window, cx);
+        Some(command)
     }
 
     pub fn set_session_capabilities(
@@ -748,121 +767,12 @@ impl MessageEditor {
         &self.mention_set
     }
 
-    fn validate_slash_commands(
-        text: &str,
-        available_commands: &[acp::AvailableCommand],
-        available_skills: &[AvailableSkill],
-        agent_id: &AgentId,
-    ) -> Result<()> {
-        if let Some(parsed_command) = SlashCommandCompletion::try_parse(text, 0) {
-            if parsed_command.source_range.start != 0 {
-                return Ok(());
-            }
-            if let Some(command_name) = parsed_command.command {
-                // Two acceptance paths:
-                //
-                // 1. Direct name match. Covers bare slash commands
-                //    (`/help`), MCP prompts that were prefixed at the
-                //    agent because of a server-name collision
-                //    (`/github.create_pr`), and skills (whose bare name
-                //    is registered for the unqualified `/<name>` form).
-                //
-                // 2. Trusted native skill scope qualifier `/<scope>:<name>`. The popup
-                //    inserts this colon-separated form to disambiguate
-                //    same-named skills, so the validator splits on the
-                //    LAST `:` to recover scope + bare name. Skill
-                //    names are restricted to `[a-z0-9-]+` (no colons),
-                //    so the rightmost colon is always the scope/name
-                //    boundary — this lets scope labels (e.g. worktree
-                //    root names) themselves contain colons. The
-                //    scope is allowed to be empty: `/:<name>` is the
-                //    qualified form for a global skill (see
-                //    `SkillSource::scope_prefix`). The validator then
-                //    checks the `available_skills` slice for an entry
-                //    whose `skill.name` matches the bare name and
-                //    whose `skill.source` equals the typed scope
-                //    (including empty for globals). Without this
-                //    branch, every autocomplete pick of a same-named
-                //    skill would be rejected as "not supported"
-                //    before reaching the resolver.
-                let direct_match = available_commands
-                    .iter()
-                    .any(|available_command| available_command.name == command_name)
-                    || available_skills
-                        .iter()
-                        .any(|skill| skill.name.as_ref() == command_name);
-                let scope_match = !direct_match
-                    && command_name.rsplit_once(':').is_some_and(|(scope, bare)| {
-                        !bare.is_empty()
-                            && available_skills.iter().any(|skill| {
-                                skill.name.as_ref() == bare && skill.source.as_ref() == scope
-                            })
-                    });
-
-                if !direct_match && !scope_match {
-                    return Err(anyhow!(indoc::formatdoc!(
-                        "/{command_name} is not a recognized command in {agent_id}. \
-                         Messages that start with `/` are interpreted as commands.
-
-                         If you are trying to send a message and not run a command, \
-                         try preceding the `/` with a space.
-
-                         Available commands for {agent_id}: {commands}",
-                        commands =
-                            Self::format_available_commands(available_commands, available_skills),
-                    )));
-                }
-            }
-        }
-        Ok(())
-    }
-
-    /// Render the available-commands list for error messages. Trusted native skills
-    /// are shown in their qualified `/<scope>:<name>` form so users
-    /// see the exact text the popup would insert — otherwise the
-    /// listing would contain confusing duplicates like `/foo, /foo`
-    /// when both a global and a project-local skill share a name.
-    /// Globals carry an empty scope and so render as `/:<name>`.
-    fn format_available_commands(
-        commands: &[acp::AvailableCommand],
-        skills: &[AvailableSkill],
-    ) -> String {
-        if commands.is_empty() && skills.is_empty() {
-            return "none".to_string();
-        }
-        skills
-            .iter()
-            .map(|skill| format!("/{}:{}", skill.source, skill.name))
-            .chain(commands.iter().map(|command| format!("/{}", command.name)))
-            .collect::<Vec<_>>()
-            .join(", ")
-    }
-
     pub fn contents(
         &self,
         full_mention_content: bool,
         cx: &mut Context<Self>,
     ) -> Task<Result<(Vec<acp::ContentBlock>, Vec<Entity<Buffer>>)>> {
-        let text = self.editor.read(cx).text(cx);
-        let (available_commands, available_skills) = {
-            let session_capabilities = self.session_capabilities.read();
-            (
-                session_capabilities.available_commands().to_vec(),
-                session_capabilities.available_skills().to_vec(),
-            )
-        };
-        let agent_id = self.agent_id.clone();
-        let build_task = self.build_content_blocks(full_mention_content, cx);
-
-        cx.spawn(async move |_, _cx| {
-            Self::validate_slash_commands(
-                &text,
-                &available_commands,
-                &available_skills,
-                &agent_id,
-            )?;
-            build_task.await
-        })
+        self.build_content_blocks(full_mention_content, cx)
     }
 
     pub fn draft_contents(&self, cx: &mut Context<Self>) -> Task<Result<Vec<acp::ContentBlock>>> {
@@ -2265,7 +2175,7 @@ mod tests {
     use language_model::LanguageModelRegistry;
     use lsp::{CompletionContext, CompletionTriggerKind};
     use parking_lot::RwLock;
-    use project::{AgentId, CompletionIntent, Project, ProjectPath};
+    use project::{CompletionIntent, Project, ProjectPath};
     use serde_json::{Value, json};
 
     use text::Point;
@@ -2337,105 +2247,6 @@ mod tests {
         );
         assert_eq!(category("deploy"), Some(acp_thread::CommandCategory::Mcp));
         assert_eq!(category("help"), None);
-    }
-
-    #[test]
-    fn test_validate_slash_commands_accepts_scope_qualified_skill() {
-        let agent_id = AgentId::from("Zed");
-        let make_skill = |name: &str, source: &str| AvailableSkill {
-            name: name.into(),
-            description: "desc".into(),
-            source: source.into(),
-            skill_file_path: PathBuf::from(format!("/tmp/{source}-{name}/SKILL.md")),
-            warning: None,
-        };
-
-        // Global skills carry an empty scope (so the popup inserts
-        // `/:<name>`); project-local skills carry their worktree root
-        // name. The empty-scope encoding means a worktree literally
-        // named `global` no longer collides with the global source.
-        let commands = vec![acp::AvailableCommand::new("help", "Get help")];
-        let skills = vec![make_skill("deploy", ""), make_skill("deploy", "zed")];
-        let no_skills = Vec::new();
-
-        // Bare name still works (current behavior — the resolver
-        // applies project-overrides-global for unqualified commands).
-        MessageEditor::validate_slash_commands("/deploy", &commands, &skills, &agent_id)
-            .expect("bare /deploy should validate when a skill named `deploy` exists");
-        MessageEditor::validate_slash_commands("/zed:deploy", &commands, &no_skills, &agent_id)
-            .expect_err("scope-qualified skills should require a first-class available skill");
-
-        // Scope-qualified forms both validate, each pointing at the
-        // matching source. `/:<name>` is the qualified form for a
-        // global skill; `/<worktree>:<name>` is the qualified form
-        // for a project-local skill.
-        MessageEditor::validate_slash_commands("/:deploy", &commands, &skills, &agent_id)
-            .expect("/:deploy should validate when a global skill named `deploy` exists");
-        MessageEditor::validate_slash_commands("/zed:deploy", &commands, &skills, &agent_id).expect(
-            "/zed:deploy should validate when a project skill named `deploy` exists in the `zed` worktree",
-        );
-
-        // Hand-typed `/global:<name>` is NOT an alias for `/:<name>`.
-        // It looks for a project-local skill from a worktree named
-        // `global`, and fails when no such worktree skill exists.
-        MessageEditor::validate_slash_commands("/global:deploy", &commands, &skills, &agent_id)
-            .expect_err(
-                "/global:deploy should fail when no worktree named `global` has a `deploy` skill",
-            );
-
-        // The `:` separator is what distinguishes a skill scope from
-        // an MCP server prefix — the dotted form `/zed.deploy` is an
-        // MCP-style lookup, which doesn't match here.
-        MessageEditor::validate_slash_commands("/zed.deploy", &commands, &skills, &agent_id)
-            .expect_err("/zed.deploy (dotted) should be treated as an MCP-style prefix and fail");
-
-        // Wrong scope is rejected so the resolver doesn't silently
-        // fall through when the user meant a skill. `zed:help` looks
-        // like a skill scope qualifier but no skill named `help`
-        // exists in the `zed` worktree (it's an MCP command).
-        let err =
-            MessageEditor::validate_slash_commands("/zed:help", &commands, &skills, &agent_id)
-                .expect_err(
-                    "/zed:help should fail — `help` is an MCP command, not a worktree skill",
-                );
-        let err_message = err.to_string();
-        assert!(
-            err_message.contains("/zed:help"),
-            "error should mention the typed command: {err_message}"
-        );
-        // Error listing shows qualified forms for skills so users see
-        // the exact text the popup would have inserted. Globals
-        // render with an empty scope as `/:<name>`.
-        assert!(
-            err_message.contains("/:deploy"),
-            "error listing should show qualified global form: {err_message}"
-        );
-        assert!(
-            err_message.contains("/zed:deploy"),
-            "error listing should show qualified worktree form: {err_message}"
-        );
-        assert!(
-            err_message.contains("/help"),
-            "error listing should still show bare MCP commands: {err_message}"
-        );
-
-        // Slashes that appear mid-text (paths, URLs, pasted logs)
-        // should NOT be validated as commands.
-        MessageEditor::validate_slash_commands(
-            "check /docs for info",
-            &commands,
-            &skills,
-            &agent_id,
-        )
-        .expect("mid-text /docs should not be treated as a slash command");
-
-        MessageEditor::validate_slash_commands(
-            "see /usr/local/bin/foo",
-            &commands,
-            &skills,
-            &agent_id,
-        )
-        .expect("file paths containing slashes should not trigger validation");
     }
 
     #[test]
@@ -2551,7 +2362,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -2617,7 +2427,7 @@ mod tests {
     }
 
     #[gpui::test]
-    async fn test_slash_command_validation(cx: &mut gpui::TestAppContext) {
+    async fn test_unrecognized_slash_command_reaches_the_agent(cx: &mut gpui::TestAppContext) {
         init_test(cx);
         let fs = FakeFs::new(cx.executor());
         fs.insert_tree(
@@ -2651,7 +2461,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     session_capabilities.clone(),
-                    "Claude Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -2664,40 +2473,46 @@ mod tests {
         });
         let editor = message_editor.update(cx, |message_editor, _| message_editor.editor.clone());
 
-        // Test that slash commands fail when no available_commands are set (empty list means no commands supported)
+        // An empty command list means the agent has not advertised yet, not
+        // that it supports nothing: the advertisement arrives as a session
+        // update and changes over the session. The prompt goes through.
         editor.update_in(cx, |editor, window, cx| {
             editor.set_text("/file test.txt", window, cx);
         });
 
-        let contents_result = message_editor
+        let (content, _) = message_editor
             .update(cx, |message_editor, cx| message_editor.contents(false, cx))
-            .await;
-
-        // Should fail because available_commands is empty (no commands supported)
-        assert!(contents_result.is_err());
-        let error_message = contents_result.unwrap_err().to_string();
-        assert!(error_message.contains("is not a recognized command in Claude Agent"));
-        assert!(error_message.contains("Available commands for Claude Agent: none"));
+            .await
+            .expect("an unadvertised command is the agent's to interpret");
+        assert_eq!(content.len(), 1);
+        if let acp::ContentBlock::Text(text) = &content[0] {
+            assert_eq!(text.text, "/file test.txt");
+        } else {
+            panic!("Expected ContentBlock::Text");
+        }
 
         // Now simulate Claude providing its list of available commands (which doesn't include file)
         session_capabilities
             .write()
             .set_available_commands(vec![acp::AvailableCommand::new("help", "Get help")]);
 
-        // Test that unsupported slash commands trigger an error when we have a list of available commands
+        // Still sent once a list exists: agents accept commands they never
+        // advertise, so a command missing from the list is not a command the
+        // client may refuse on the agent's behalf.
         editor.update_in(cx, |editor, window, cx| {
             editor.set_text("/file test.txt", window, cx);
         });
 
-        let contents_result = message_editor
+        let (content, _) = message_editor
             .update(cx, |message_editor, cx| message_editor.contents(false, cx))
-            .await;
-
-        assert!(contents_result.is_err());
-        let error_message = contents_result.unwrap_err().to_string();
-        assert!(error_message.contains("is not a recognized command in Claude Agent"));
-        assert!(error_message.contains("/file"));
-        assert!(error_message.contains("Available commands for Claude Agent: /help"));
+            .await
+            .expect("a command outside the advertised list still reaches the agent");
+        assert_eq!(content.len(), 1);
+        if let acp::ContentBlock::Text(text) = &content[0] {
+            assert_eq!(text.text, "/file test.txt");
+        } else {
+            panic!("Expected ContentBlock::Text");
+        }
 
         // Test that supported commands work fine
         editor.update_in(cx, |editor, window, cx| {
@@ -2816,7 +2631,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     session_capabilities.clone(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -2980,7 +2794,6 @@ mod tests {
                     project.downgrade(),
                     None,
                     session_capabilities.clone(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -3055,6 +2868,91 @@ mod tests {
         );
     }
 
+    /// The completion popup is not the only way in: someone who knows a
+    /// command types it and presses enter, which reaches `take_local_command`
+    /// rather than the popup's confirm path.
+    #[gpui::test]
+    async fn test_typed_local_command_is_taken_and_clears_the_draft(cx: &mut TestAppContext) {
+        init_test(cx);
+
+        let app_state = cx.update(AppState::test);
+        cx.update(|cx| {
+            editor::init(cx);
+            workspace::init(app_state.clone(), cx);
+        });
+
+        let project = Project::test(app_state.fs.clone(), [path!("/dir").as_ref()], cx).await;
+        let window =
+            cx.add_window(|window, cx| MultiWorkspace::test_new(project.clone(), window, cx));
+        let workspace = window
+            .read_with(cx, |mw, _| mw.workspace().clone())
+            .unwrap();
+        let mut cx = VisualTestContext::from_window(window.into(), cx);
+
+        let session_capabilities = Arc::new(RwLock::new(SessionCapabilities::from_acp_commands(
+            acp::PromptCapabilities::default(),
+            Vec::new(),
+        )));
+
+        let message_editor = workspace.update_in(&mut cx, |_, window, cx| {
+            let workspace_handle = cx.weak_entity();
+            cx.new(|cx| {
+                MessageEditor::new(
+                    workspace_handle,
+                    project.downgrade(),
+                    None,
+                    session_capabilities.clone(),
+                    "Test",
+                    EditorMode::AutoHeight {
+                        max_lines: None,
+                        min_lines: 1,
+                    },
+                    window,
+                    cx,
+                )
+            })
+        });
+
+        message_editor.read_with(&cx, |message_editor, _| {
+            message_editor.set_local_commands(vec![
+                PromptLocalCommand::ClearThread,
+                PromptLocalCommand::ThumbsUp,
+            ]);
+        });
+
+        let take = |text: &str, cx: &mut VisualTestContext| {
+            message_editor.update_in(cx, |message_editor, window, cx| {
+                message_editor
+                    .editor
+                    .update(cx, |editor, cx| editor.set_text(text, window, cx));
+                message_editor.take_local_command(window, cx)
+            })
+        };
+
+        assert_eq!(
+            take("/clear", &mut cx),
+            Some(PromptLocalCommand::ClearThread)
+        );
+        message_editor.read_with(&cx, |message_editor, cx| {
+            assert_eq!(message_editor.editor.read(cx).text(cx), "");
+        });
+
+        // Surrounding whitespace is still just the command.
+        assert_eq!(
+            take("  /clear  ", &mut cx),
+            Some(PromptLocalCommand::ClearThread)
+        );
+
+        // An argument means the text was meant for the agent, and a command
+        // this editor was not given stays a prompt.
+        assert_eq!(take("/clear the build directory", &mut cx), None);
+        assert_eq!(take("/resume", &mut cx), None);
+        assert_eq!(take("hello", &mut cx), None);
+        message_editor.read_with(&cx, |message_editor, cx| {
+            assert_eq!(message_editor.editor.read(cx).text(cx), "hello");
+        });
+    }
+
     /// Opening slash-command autocomplete must emit
     /// [`MessageEditorEvent::SlashAutocompleteOpened`]. `ThreadView`
     /// subscribes to that event to fire the global-skills scan trigger
@@ -3100,7 +2998,6 @@ mod tests {
                     project.downgrade(),
                     None,
                     session_capabilities.clone(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -3248,7 +3145,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store),
                     session_capabilities.clone(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -3740,7 +3636,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -3840,7 +3735,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -3908,7 +3802,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -3960,7 +3853,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -4016,7 +3908,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -4073,7 +3964,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -4134,7 +4024,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -4293,7 +4182,6 @@ mod tests {
                     project.downgrade(),
                     thread_store.clone(),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::full(),
                     window,
@@ -4412,7 +4300,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store.clone()),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -4490,7 +4377,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -4667,7 +4553,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -5078,7 +4963,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -5414,7 +5298,6 @@ mod tests {
                     project.downgrade(),
                     Some(thread_store),
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         max_lines: None,
@@ -5536,7 +5419,6 @@ mod tests {
                     project.downgrade(),
                     None,
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,
@@ -5711,7 +5593,6 @@ mod tests {
                     project.downgrade(),
                     None,
                     Default::default(),
-                    "Test Agent".into(),
                     "Test",
                     EditorMode::AutoHeight {
                         min_lines: 1,

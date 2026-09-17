@@ -1281,7 +1281,6 @@ impl ConversationView {
                 self.project.downgrade(),
                 self.thread_store.clone(),
                 session_capabilities.clone(),
-                self.agent.agent_id(),
             )
         });
 

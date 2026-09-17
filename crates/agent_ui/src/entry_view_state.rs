@@ -14,7 +14,7 @@ use gpui::{
     ScrollHandle, TextStyleRefinement, WeakEntity, Window,
 };
 use language::language_settings::SoftWrap;
-use project::{AgentId, Project, project_settings::DiagnosticSeverity};
+use project::{Project, project_settings::DiagnosticSeverity};
 use rope::Point;
 use settings::{Settings as _, ThinkingBlockDisplay};
 use terminal_view::TerminalView;
@@ -42,7 +42,6 @@ pub struct EntryViewState {
     thread_store: Option<Entity<ThreadStore>>,
     entries: Vec<Entry>,
     session_capabilities: SharedSessionCapabilities,
-    agent_id: AgentId,
     expanded_thinking_blocks: HashSet<(usize, usize)>,
     auto_expanded_thinking_block: Option<(usize, usize)>,
     user_toggled_thinking_blocks: HashSet<(usize, usize)>,
@@ -56,7 +55,6 @@ impl EntryViewState {
         project: WeakEntity<Project>,
         thread_store: Option<Entity<ThreadStore>>,
         session_capabilities: SharedSessionCapabilities,
-        agent_id: AgentId,
     ) -> Self {
         Self {
             workspace,
@@ -64,7 +62,6 @@ impl EntryViewState {
             thread_store,
             entries: Vec::new(),
             session_capabilities,
-            agent_id,
             expanded_thinking_blocks: HashSet::default(),
             auto_expanded_thinking_block: None,
             user_toggled_thinking_blocks: HashSet::default(),
@@ -256,7 +253,6 @@ impl EntryViewState {
                             self.project.clone(),
                             self.thread_store.clone(),
                             self.session_capabilities.clone(),
-                            self.agent_id.clone(),
                             "Edit message － @ to include context",
                             editor::EditorMode::AutoHeight {
                                 min_lines: 1,
@@ -791,7 +787,6 @@ mod tests {
                 project.downgrade(),
                 thread_store,
                 Arc::new(RwLock::new(SessionCapabilities::default())),
-                "Test Agent".into(),
             )
         });
 
@@ -904,7 +899,6 @@ mod tests {
                 project.downgrade(),
                 None,
                 Arc::new(RwLock::new(SessionCapabilities::default())),
-                "Test Agent".into(),
             )
         });
 

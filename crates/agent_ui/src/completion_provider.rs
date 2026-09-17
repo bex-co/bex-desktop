@@ -191,7 +191,9 @@ impl PromptContextAction {
 }
 
 /// A slash command that runs a local UI action against the conversation
-/// (sending feedback) instead of being sent to the agent as part of a prompt.
+/// (starting or switching threads, sending feedback) instead of being sent to
+/// the agent as part of a prompt. These are the commands the client owns: an
+/// agent cannot start or switch an ACP session, because the client creates it.
 /// Each variant maps to a method on `ThreadView`; the completion provider only
 /// surfaces them and emits an event, while `ThreadView` performs the actual
 /// work (see `handle_message_editor_event`).
@@ -199,6 +201,14 @@ impl PromptContextAction {
 pub enum PromptLocalCommand {
     ThumbsUp,
     ThumbsDown,
+    NewThread,
+    /// The same action as `NewThread`. A thread is what a terminal agent calls
+    /// a session, and its CLI spells "start a fresh one" `/clear`; typing that
+    /// here should do the obvious thing rather than reach the model. Kept a
+    /// separate variant so both spellings appear in the popup — matching is by
+    /// keyword, so an alias on `NewThread` would be undiscoverable.
+    ClearThread,
+    ResumeThread,
 }
 
 impl PromptLocalCommand {
@@ -206,6 +216,9 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => "helpful",
             Self::ThumbsDown => "not-helpful",
+            Self::NewThread => "new",
+            Self::ClearThread => "clear",
+            Self::ResumeThread => "resume",
         }
     }
 
@@ -213,6 +226,9 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => "Positive Feedback",
             Self::ThumbsDown => "Negative Feedback",
+            Self::NewThread => "New Thread",
+            Self::ClearThread => "Clear Thread",
+            Self::ResumeThread => "Resume Thread",
         }
     }
 
@@ -224,6 +240,10 @@ impl PromptLocalCommand {
             Self::ThumbsDown => {
                 "Rate this response as not helpful. Sends the current conversation to the Bex team."
             }
+            Self::NewThread | Self::ClearThread => {
+                "Start a fresh thread with this agent. This thread stays in history."
+            }
+            Self::ResumeThread => "Open the thread switcher to continue an earlier thread.",
         }
     }
 
@@ -231,6 +251,8 @@ impl PromptLocalCommand {
         match self {
             Self::ThumbsUp => IconName::ThumbsUp,
             Self::ThumbsDown => IconName::ThumbsDown,
+            Self::NewThread | Self::ClearThread => IconName::Plus,
+            Self::ResumeThread => IconName::HistoryRerun,
         }
     }
 }
@@ -2849,6 +2871,52 @@ fn completion_text_for_terminal_selections(
 mod tests {
     use super::*;
     use gpui::TestAppContext;
+
+    /// Matching in the popup is by keyword, and `take_local_command` resolves a
+    /// typed draft the same way, so a duplicate keyword would make one command
+    /// unreachable and a keyword with a space or slash unmatchable.
+    #[test]
+    fn test_local_command_keywords_are_distinct_and_typable() {
+        let commands = [
+            PromptLocalCommand::ThumbsUp,
+            PromptLocalCommand::ThumbsDown,
+            PromptLocalCommand::NewThread,
+            PromptLocalCommand::ClearThread,
+            PromptLocalCommand::ResumeThread,
+        ];
+
+        let mut keywords = commands
+            .iter()
+            .map(|command| command.keyword())
+            .collect::<Vec<_>>();
+        let count = keywords.len();
+        keywords.sort_unstable();
+        keywords.dedup();
+        assert_eq!(keywords.len(), count, "local command keywords must be unique");
+
+        for command in commands {
+            let keyword = command.keyword();
+            assert!(
+                !keyword.is_empty()
+                    && keyword
+                        .chars()
+                        .all(|c| c.is_ascii_lowercase() || c == '-'),
+                "`{keyword}` is not typable as a bare `/keyword`"
+            );
+            assert!(!command.label().is_empty());
+            assert!(!command.description().is_empty());
+        }
+
+        // `/clear` and `/new` are deliberately separate commands rather than
+        // aliases: the popup matches keywords, so an alias would not be
+        // discoverable for someone arriving from a terminal agent.
+        assert_eq!(PromptLocalCommand::ClearThread.keyword(), "clear");
+        assert_eq!(PromptLocalCommand::NewThread.keyword(), "new");
+        assert_eq!(
+            PromptLocalCommand::ClearThread.description(),
+            PromptLocalCommand::NewThread.description()
+        );
+    }
 
     #[test]
     fn test_prompt_completion_parse() {

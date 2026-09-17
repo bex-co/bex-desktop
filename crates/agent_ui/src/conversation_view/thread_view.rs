@@ -814,7 +814,6 @@ impl ThreadView {
                 project.clone(),
                 thread_store,
                 session_capabilities.clone(),
-                agent_id.clone(),
                 &placeholder,
                 editor::EditorMode::AutoHeight {
                     min_lines: AgentSettings::get_global(cx).message_editor_min_lines,
@@ -1163,6 +1162,19 @@ impl ThreadView {
             PromptLocalCommand::ThumbsDown => {
                 self.handle_feedback_click(ThreadFeedback::Negative, window, cx);
             }
+            // Dispatched rather than called directly: `NewThread` is registered
+            // on the workspace, which owns which agent a new thread opens with.
+            PromptLocalCommand::NewThread | PromptLocalCommand::ClearThread => {
+                window.dispatch_action(Box::new(NewThread), cx);
+            }
+            PromptLocalCommand::ResumeThread => {
+                window.dispatch_action(
+                    Box::new(zed_actions::agents_sidebar::ToggleThreadSwitcher {
+                        select_last: false,
+                    }),
+                    cx,
+                );
+            }
         }
     }
 
@@ -1485,6 +1497,13 @@ impl ThreadView {
         }
 
         let message_editor = self.message_editor.clone();
+
+        if let Some(command) =
+            message_editor.update(cx, |editor, cx| editor.take_local_command(window, cx))
+        {
+            self.run_local_command(command, window, cx);
+            return;
+        }
 
         let is_editor_empty = message_editor.read(cx).is_empty(cx);
         let is_generating = thread.read(cx).status() != ThreadStatus::Idle;
@@ -2121,7 +2140,6 @@ impl ThreadView {
                 self.project.clone(),
                 None,
                 self.session_capabilities.clone(),
-                self.agent_id.clone(),
                 "",
                 EditorMode::AutoHeight {
                     min_lines: 1,
@@ -6961,6 +6979,12 @@ impl ThreadView {
     // `sync_local_commands`.
     fn available_local_commands(&self, cx: &App) -> Vec<PromptLocalCommand> {
         let mut commands = Vec::new();
+
+        // Always available: starting or switching a thread is the client's own
+        // job, so neither depends on the agent or the current thread's state.
+        commands.push(PromptLocalCommand::NewThread);
+        commands.push(PromptLocalCommand::ClearThread);
+        commands.push(PromptLocalCommand::ResumeThread);
 
         if self.is_thread_feedback_enabled(cx) {
             commands.push(PromptLocalCommand::ThumbsUp);
