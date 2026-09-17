@@ -217,6 +217,39 @@ impl LanguageModelProvider for OpenRouterLanguageModelProvider {
 
     fn provided_models(&self, cx: &App) -> Vec<Arc<dyn LanguageModel>> {
         let mut models_from_api = self.state.read(cx).available_models.clone();
+        // Keep Muse available before catalog discovery, while preferring current
+        // API metadata and allowing user settings to override the fallback.
+        for (name, display_name) in [
+            ("meta/muse-spark-1.3", "Meta: Muse Spark 1.3"),
+            (
+                "meta/muse-spark-1.3-contributor",
+                "Meta: Muse Spark 1.3 Contributor",
+            ),
+        ] {
+            if models_from_api.iter().any(|model| model.id() == name) {
+                continue;
+            }
+            models_from_api.push(Model {
+                name: name.into(),
+                display_name: Some(display_name.into()),
+                max_tokens: 1_048_576,
+                supports_tools: Some(true),
+                supports_images: Some(true),
+                mode: OpenRouterModelMode::Adaptive,
+                supported_efforts: vec![
+                    ReasoningEffort::Minimal,
+                    ReasoningEffort::Low,
+                    ReasoningEffort::Medium,
+                    ReasoningEffort::High,
+                    ReasoningEffort::XHigh,
+                    ReasoningEffort::Max,
+                ],
+                default_effort: Some(ReasoningEffort::Medium),
+                supports_max_tokens: true,
+                mandatory_reasoning: true,
+                provider: None,
+            });
+        }
         let mut settings_models = Vec::new();
 
         for model in &Self::settings(cx).available_models {

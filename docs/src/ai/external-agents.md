@@ -36,6 +36,36 @@ This list is curated, not exhaustive. Open the ACP Registry in Zed for the curre
 
 For company-specific setup paths, including Claude, Codex, Gemini, OpenCode, Copilot, Cursor, Pi, and Poolside, see [AI by Company](./by-company.md).
 
+## Muse Code {#muse-code}
+
+Bex includes [Muse Code](https://github.com/bex-co/muse-code-acp) in the new-thread menu through the community ACP adapter.
+
+1. Install Node.js 22 or later so `npx` is available on `PATH`.
+2. Install [Meta's Muse CLI](https://dev.meta.ai/docs/muse-code/) version **1.1.1-R2514.1** with `muse serve`. Set `MUSE_CODE_EXECUTABLE` to that binary if it is outside `PATH`. Adapter 0.4.0 is verified with this host; Muse 1.2.1-R2847.1 is not supported by this release.
+3. Run `muse login` in a terminal, or supply `META_API_KEY` in Bex's environment.
+4. Select **Muse Code** from the Agent Panel's new-thread menu. Bex downloads and launches `@bex-co/muse-code-acp@0.4.0` through `npx` on first use.
+
+If Muse is installed outside `PATH`, set `MUSE_CODE_EXECUTABLE` in the agent's environment. For example, add this to your settings.json:
+
+```json [settings]
+{
+  "agent_servers": {
+    "Muse Code": {
+      "type": "custom",
+      "command": "npx",
+      "args": ["-y", "@bex-co/muse-code-acp@0.4.0"],
+      "env": {
+        "MUSE_CODE_EXECUTABLE": "/absolute/path/to/muse"
+      }
+    }
+  }
+}
+```
+
+Muse owns authentication, model selection, and tool execution. The default SDK backend forwards tool approval requests to Bex through ACP and supports default and read-only modes. The legacy `MUSE_CODE_ACP_BACKEND=exec` backend resolves approvals internally and does not offer interactive per-tool approval prompts.
+
+To use Muse Spark 1.3 Contributor with Bex's built-in agent, configure [OpenRouter](./use-a-gateway.md#muse-spark-contributor). An OpenRouter key configured in Bex does not authenticate the Muse Code external agent.
+
 ## Claude Agent {#claude-agent}
 
 Use Claude Agent when you want Claude running as an ACP-integrated External Agent in Zed.

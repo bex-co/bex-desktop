@@ -40,6 +40,27 @@ When using OpenRouter as your assistant provider, explicitly select a model in y
 
 The `openrouter/auto` model routes requests to an available model selected by OpenRouter. You can also specify any model available through OpenRouter's API.
 
+### Muse Spark 1.3 Contributor {#muse-spark-contributor}
+
+Bex includes both **Meta: Muse Spark 1.3** and **Meta: Muse Spark 1.3 Contributor** in the OpenRouter model picker. Configure your OpenRouter API key above, then select either model for the built-in agent. Both support tool calling, images, and reasoning with a 1,048,576-token context window.
+
+Or add this to your settings.json to make it your default model:
+
+```json [settings]
+{
+  "agent": {
+    "default_model": {
+      "provider": "openrouter",
+      "model": "meta/muse-spark-1.3-contributor"
+    }
+  }
+}
+```
+
+For the regular version, use `meta/muse-spark-1.3` as the model ID instead. The [Contributor offering](https://openrouter.ai/meta/muse-spark-1.3-contributor) may use prompts and outputs to improve Meta's products. Review its current terms and pricing before sending project content.
+
+[Muse Code](./external-agents.md#muse-code) is a separate external agent with its own Muse CLI authentication and model configuration.
+
 ### OpenRouter Custom Models {#openrouter-custom-models}
 
 You can add custom models to the OpenRouter provider in settings:
