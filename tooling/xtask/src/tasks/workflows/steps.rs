@@ -567,8 +567,8 @@ impl ZippyGitIdentity for Step<Run> {
 }
 
 const GITHUB_SCRIPT_SHA: &str = "f28e40c7f34bde8b3046d885e986cb6290c5673b"; // v7
-const UPLOAD_ARTIFACT_SHA: &str = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"; // v7.0.1
-const DOWNLOAD_ARTIFACT_SHA: &str = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"; // v8.0.1
+pub(crate) const UPLOAD_ARTIFACT_SHA: &str = "043fb46d1a93c77aae656e7c1c64a875d1fc6a0a"; // v7.0.1
+pub(crate) const DOWNLOAD_ARTIFACT_SHA: &str = "3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c"; // v8.0.1
 
 #[allow(unused)]
 pub(crate) enum ResultEncoding {

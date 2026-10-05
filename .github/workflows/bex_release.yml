@@ -24,12 +24,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Test publication guards
@@ -50,12 +50,12 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Validate tag and version
@@ -102,19 +102,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Bundle and notarize macOS
@@ -124,7 +124,7 @@ jobs:
       run: python script/bex-release.py collect macos aarch64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-macos-aarch64
         path: release-artifacts/*
@@ -149,19 +149,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Bundle and notarize macOS
@@ -171,7 +171,7 @@ jobs:
       run: python script/bex-release.py collect macos x86_64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-macos-x86_64
         path: release-artifacts/*
@@ -191,19 +191,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Install Linux dependencies
@@ -243,7 +243,7 @@ jobs:
       run: python script/bex-release.py collect linux aarch64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-linux-aarch64
         path: release-artifacts/*
@@ -263,19 +263,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Install Linux dependencies
@@ -290,7 +290,7 @@ jobs:
       run: python script/bex-release.py collect linux x86_64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-linux-x86_64
         path: release-artifacts/*
@@ -319,19 +319,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Install signing tools and bundle Windows
@@ -348,7 +348,7 @@ jobs:
       run: python script/bex-release.py collect windows aarch64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-windows-aarch64
         path: release-artifacts/*
@@ -377,19 +377,19 @@ jobs:
       MACOS_SIGNING_IDENTITY: ${{ vars.MACOS_SIGNING_IDENTITY }}
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Prepare stable build
       run: python script/bex-release.py prepare
       shell: bash
     - name: Action
-      uses: actions/setup-node@v4
+      uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e
       with:
         node-version: '22'
     - name: Install signing tools and bundle Windows
@@ -406,7 +406,7 @@ jobs:
       run: python script/bex-release.py collect windows x86_64
       shell: bash
     - name: Action
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a
       with:
         name: bex-windows-x86_64
         path: release-artifacts/*
@@ -427,16 +427,16 @@ jobs:
       contents: write
     steps:
     - name: Action
-      uses: actions/checkout@v4
+      uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd
       with:
         fetch-depth: 0
         persist-credentials: false
     - name: Action
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1
       with:
         python-version: '3.12'
     - name: Action
-      uses: actions/download-artifact@v4
+      uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c
       with:
         pattern: bex-*
         merge-multiple: true

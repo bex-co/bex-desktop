@@ -1,17 +1,29 @@
 use gh_workflow::*;
 
-use super::{runners::Platform, vars::bundle_envs};
+use super::{
+    runners::Platform,
+    steps::{DOWNLOAD_ARTIFACT_SHA, UPLOAD_ARTIFACT_SHA},
+    vars::bundle_envs,
+};
 
 fn checkout() -> Step<Use> {
     Step::new("Action")
-        .uses("actions", "checkout", "v4")
+        .uses(
+            "actions",
+            "checkout",
+            "93cb6efe18208431cddfb8368fd83d5badbf9bfd", // v5.0.1
+        )
         .add_with(("fetch-depth", 0))
         .add_with(("persist-credentials", false))
 }
 
 fn python() -> Step<Use> {
     Step::new("Action")
-        .uses("actions", "setup-python", "v5")
+        .uses(
+            "actions",
+            "setup-python",
+            "ece7cb06caefa5fff74198d8649806c4678c61a1", // v6.3.0
+        )
         .add_with(("python-version", "3.12"))
 }
 
@@ -99,7 +111,11 @@ pub fn bex_release() -> Workflow {
             ))
             .add_step(
                 Step::new("Action")
-                    .uses("actions", "setup-node", "v4")
+                    .uses(
+                        "actions",
+                        "setup-node",
+                        "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e", // v6.4.0
+                    )
                     .add_with(("node-version", "22")),
             );
         if os == "linux" {
@@ -162,7 +178,7 @@ if ($signature.Status -ne 'Valid') {{ throw 'Installer signature validation fail
             ))
             .add_step(
                 Step::new("Action")
-                    .uses("actions", "upload-artifact", "v4")
+                    .uses("actions", "upload-artifact", UPLOAD_ARTIFACT_SHA)
                     .add_with(("name", format!("bex-{os}-{arch}")))
                     .add_with(("path", "release-artifacts/*"))
                     .add_with(("if-no-files-found", "error"))
@@ -182,7 +198,7 @@ if ($signature.Status -ne 'Valid') {{ throw 'Installer signature validation fail
             .add_step(python())
             .add_step(
                 Step::new("Action")
-                    .uses("actions", "download-artifact", "v4")
+                    .uses("actions", "download-artifact", DOWNLOAD_ARTIFACT_SHA)
                     .add_with(("pattern", "bex-*"))
                     .add_with(("merge-multiple", true))
                     .add_with(("path", "release-artifacts")),

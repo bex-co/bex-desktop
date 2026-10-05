@@ -8,8 +8,8 @@ use strum::IntoEnumIterator;
 use crate::tasks::workflow_checks::{self};
 
 mod after_release;
-mod bex_release;
 mod autofix_pr;
+mod bex_release;
 mod bump_patch_version;
 mod bump_zed_version;
 mod cherry_pick;
