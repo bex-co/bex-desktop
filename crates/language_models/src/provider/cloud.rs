@@ -606,7 +606,7 @@ impl Render for ConfigurationView {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use client::{Credentials, test::make_get_authenticated_user_response};
+    use client::Credentials;
     use clock::FakeSystemClock;
     use feature_flags::FeatureFlagAppExt as _;
     use gpui::TestAppContext;
@@ -668,30 +668,37 @@ mod tests {
             .replace_handler(move |old_handler, request| {
                 let authenticated_user_rx = authenticated_user_rx.clone();
                 async move {
-                    if request.method() == Method::GET && request.uri().path() == "/client/users/me"
-                    {
-                        let authenticated_user_rx = authenticated_user_rx
-                            .lock()
-                            .expect("authenticated user receiver lock poisoned")
-                            .take();
-                        if let Some(authenticated_user_rx) = authenticated_user_rx {
-                            authenticated_user_rx.await.ok();
-                        }
-
-                        return Ok(Response::builder()
-                            .status(200)
-                            .body(
-                                serde_json::to_string(&make_get_authenticated_user_response(
-                                    TEST_USER_ID as i32,
-                                    format!("user-{TEST_USER_ID}"),
-                                ))
-                                .expect("failed to serialize authenticated user response")
-                                .into(),
-                            )
-                            .expect("failed to build authenticated user response"));
+                    if request.method() != Method::GET {
+                        return old_handler(request).await;
                     }
+                    // The signed-in user comes from Bex's OIDC userinfo, not
+                    // Zed Cloud, so fake discovery and gate the userinfo reply.
+                    let body = match request.uri().path() {
+                        "/.well-known/openid-configuration" => serde_json::json!({
+                            "authorization_endpoint": "https://oauth.test/oauth2/auth",
+                            "token_endpoint": "https://oauth.test/oauth2/token",
+                            "userinfo_endpoint": "https://oauth.test/userinfo",
+                        }),
+                        "/userinfo" => {
+                            let authenticated_user_rx = authenticated_user_rx
+                                .lock()
+                                .expect("authenticated user receiver lock poisoned")
+                                .take();
+                            if let Some(authenticated_user_rx) = authenticated_user_rx {
+                                authenticated_user_rx.await.ok();
+                            }
+                            serde_json::json!({
+                                "sub": TEST_USER_ID.to_string(),
+                                "preferred_username": format!("user-{TEST_USER_ID}"),
+                            })
+                        }
+                        _ => return old_handler(request).await,
+                    };
 
-                    old_handler(request).await
+                    Ok(Response::builder()
+                        .status(200)
+                        .body(body.to_string().into())
+                        .expect("failed to build OIDC response"))
                 }
             });
     }
