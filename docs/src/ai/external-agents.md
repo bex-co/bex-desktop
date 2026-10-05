@@ -43,7 +43,7 @@ Bex includes [Muse Code](https://github.com/bex-co/muse-code-acp) in the new-thr
 1. Install Node.js 22 or later so `npx` is available on `PATH`.
 2. Install [Meta's Muse CLI](https://dev.meta.ai/docs/muse-code/) version **1.1.1-R2514.1** with `muse serve`. Set `MUSE_CODE_EXECUTABLE` to that binary if it is outside `PATH`. Adapter 0.6.0 also verifies SDK-created session continuation, approvals, and HTTP MCP with Muse 1.2.1-R2847.1. On that host, legacy exec sessions saved with `:auto-review` cannot resume through the SDK; start a new ACP session instead.
 3. Run `muse login` in a terminal, or supply `META_API_KEY` in Bex's environment.
-4. Select **Muse Code** from the Agent Panel's new-thread menu. Bex downloads and launches `@bex-co/muse-code-acp@0.6.0` through `npx` on first use.
+4. Select **Muse Code** from the Agent Panel's new-thread menu. Bex downloads and launches `@bex-co/muse-code-acp@0.7.0` through `npx` on first use.
 
 If Muse is installed outside `PATH`, set `MUSE_CODE_EXECUTABLE` in the agent's environment. For example, add this to your settings.json:
 
@@ -53,7 +53,7 @@ If Muse is installed outside `PATH`, set `MUSE_CODE_EXECUTABLE` in the agent's e
     "Muse Code": {
       "type": "custom",
       "command": "npx",
-      "args": ["-y", "@bex-co/muse-code-acp@0.6.0"],
+      "args": ["-y", "@bex-co/muse-code-acp@0.7.0"],
       "env": {
         "MUSE_CODE_EXECUTABLE": "/absolute/path/to/muse"
       }

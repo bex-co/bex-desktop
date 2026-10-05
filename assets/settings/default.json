@@ -2950,7 +2950,7 @@
     "Muse Code": {
       "type": "custom",
       "command": "npx",
-      "args": ["-y", "@bex-co/muse-code-acp@0.6.0"],
+      "args": ["-y", "@bex-co/muse-code-acp@0.7.0"],
       "env": {}
     }
   },
