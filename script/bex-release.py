@@ -9,6 +9,7 @@ import re
 import shutil
 import subprocess
 import sys
+import time
 import tomllib
 
 REPOSITORY = "bex-co/bex-desktop"
@@ -19,6 +20,19 @@ SYSTEMS = ("macos", "linux", "windows")
 
 def run(*arguments):
     return subprocess.check_output(arguments, text=True).strip()
+
+
+# stapler fetches the notarization ticket from Apple's CloudKit, and macOS Intel
+# runners intermittently lose that connection (exit 68) after notarization succeeds.
+def run_with_retries(*arguments, attempts=5, delay_seconds=30):
+    for attempt in range(1, attempts + 1):
+        try:
+            return run(*arguments)
+        except subprocess.CalledProcessError as error:
+            if attempt == attempts:
+                raise
+            print(f"{' '.join(arguments)} exited {error.returncode} (attempt {attempt}/{attempts}); retrying in {delay_seconds}s", file=sys.stderr)
+            time.sleep(delay_seconds)
 
 
 def version_tuple(tag):
@@ -120,7 +134,7 @@ def collect(system, architecture):
         if system == "macos" and index == 0:
             source = Path(f"target/{architecture}-apple-darwin/release") / name
             run("codesign", "--verify", "--verbose=2", str(source))
-            run("xcrun", "stapler", "validate", str(source))
+            run_with_retries("xcrun", "stapler", "validate", str(source))
         if not source.is_file() or source.stat().st_size == 0:
             raise ValueError(f"Missing or empty release artifact: {source}")
         shutil.copyfile(source, destination / name)

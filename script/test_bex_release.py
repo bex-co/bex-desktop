@@ -95,6 +95,15 @@ class ReleaseTests(unittest.TestCase):
             finally:
                 os.chdir(previous)
 
+    def test_retries_transient_stapler_failures(self):
+        failure = release.subprocess.CalledProcessError(68, ["xcrun", "stapler", "validate"])
+        with patch.object(release, "run", side_effect=[failure, failure, "validated"]) as run, patch.object(release.time, "sleep") as sleep:
+            self.assertEqual(release.run_with_retries("xcrun", "stapler", "validate", "Bex.dmg"), "validated")
+        self.assertEqual(run.call_count, 3)
+        self.assertEqual(sleep.call_count, 2)
+        with patch.object(release, "run", side_effect=failure), patch.object(release.time, "sleep"), self.assertRaises(release.subprocess.CalledProcessError):
+            release.run_with_retries("xcrun", "stapler", "validate", "Bex.dmg", attempts=3)
+
     def test_requires_all_nonempty_artifacts(self):
         with tempfile.TemporaryDirectory() as temporary:
             directory = Path(temporary)

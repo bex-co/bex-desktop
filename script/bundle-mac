@@ -276,7 +276,19 @@ function sign_app_binaries() {
             echo "$APPLE_NOTARIZATION_KEY" > "$notarization_key_file"
             "${xcode_bin_dir_path}/notarytool" submit --wait --key "$notarization_key_file" --key-id "$APPLE_NOTARIZATION_KEY_ID" --issuer "$APPLE_NOTARIZATION_ISSUER_ID" "${dmg_file_path}"
             rm "$notarization_key_file"
-            "${xcode_bin_dir_path}/stapler" staple "${dmg_file_path}"
+            # Stapling fetches the ticket from Apple's CloudKit, which macOS Intel
+            # runners intermittently fail to reach (exit 68) after notarization succeeds.
+            for staple_attempt in 1 2 3 4 5; do
+                if "${xcode_bin_dir_path}/stapler" staple "${dmg_file_path}"; then
+                    break
+                fi
+                if [[ $staple_attempt -eq 5 ]]; then
+                    echo "Stapling failed after ${staple_attempt} attempts"
+                    exit 1
+                fi
+                echo "Stapling failed (attempt ${staple_attempt}/5); retrying in 30s"
+                sleep 30
+            done
         fi
 
         if [ "$open_result" = true ]; then
