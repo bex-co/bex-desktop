@@ -23,3 +23,6 @@ release_channel.workspace = true
 smol.workspace = true
 util.workspace = true
 workspace.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true

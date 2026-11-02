@@ -50,21 +50,23 @@ trait InstalledApp {
 
 #[derive(Parser, Debug)]
 #[command(
-    name = "bex",
+    name = "bex-desktop",
     disable_version_flag = true,
-    before_help = "The Bex CLI binary.
-This CLI is a separate binary that invokes Bex.
+    before_help = "The Bex desktop CLI binary.
+This CLI is a separate binary that invokes the Bex desktop app.
 
 Examples:
-    `bex`
+    `bex-desktop`
           Simply opens Bex
-    `bex --foreground`
+    `bex-desktop --foreground`
           Runs in foreground (shows all logs)
-    `bex path-to-your-project`
+    `bex-desktop .`
+          Open the current directory in Bex
+    `bex-desktop path-to-your-project`
           Open your project in Bex
-    `bex -n path-to-file `
+    `bex-desktop -n path-to-file `
           Open file/folder in a new window",
-    after_help = "To read from stdin, append '-', e.g. 'ps axf | bex -'"
+    after_help = "To read from stdin, append '-', e.g. 'ps axf | bex-desktop -'"
 )]
 struct Args {
     /// Wait for all of the given paths to be opened/closed before exiting.
@@ -206,7 +208,7 @@ fn parse_path_with_position(argument_str: &str) -> anyhow::Result<String> {
 
 /// Returns whether a `--diff` argument refers to an existing path, allowing a
 /// trailing `:line:column` suffix (parsed later by the Zed side, matching how
-/// regular `bex path:line:column` arguments are handled).
+/// regular `bex-desktop path:line:column` arguments are handled).
 fn diff_path_exists(diff_path: &str) -> bool {
     Path::new(diff_path).exists() || PathWithPosition::parse_str(diff_path).path.exists()
 }
@@ -514,7 +516,7 @@ fn run() -> Result<()> {
 
     let args = Args::parse();
 
-    // `bex --askpass` Makes zed operate in nc/netcat mode for use with askpass
+    // `bex-desktop --askpass` Makes zed operate in nc/netcat mode for use with askpass
     if let Some(socket) = &args.askpass {
         askpass::main(socket);
         return Ok(());
@@ -532,14 +534,12 @@ fn run() -> Result<()> {
     let app = Detect::detect(args.zed.as_deref()).context("Bundle detection")?;
 
     if let Some(shell) = &args.completions {
-        let file_path = std::env::current_exe()?;
-        let file_name = file_path
-            .file_name()
-            .and_then(OsStr::to_str)
-            .ok_or("--completions expects a UTF-8 name for cli bin")
-            .map_err(anyhow::Error::msg)?;
+        // Name completions after the command on PATH, not the resolved
+        // bundle-internal binary (`cli` / `bin/bex`), so they never shadow
+        // the bex platform CLI's `bex` completions.
         let mut cmd = Args::command();
-        cmd.set_bin_name(file_name);
+        let bin_name = cmd.get_name().to_owned();
+        cmd.set_bin_name(bin_name);
         cmd.build();
         crate::completions::main(&cmd, shell);
         return Ok(());
@@ -843,7 +843,7 @@ fn anonymous_fd(path: &str) -> Option<fs::File> {
 }
 
 /// Shows an interactive prompt asking the user to choose the default open
-/// behavior for `bex <path>`. Returns `None` if the prompt cannot be shown
+/// behavior for `bex-desktop <path>`. Returns `None` if the prompt cannot be shown
 /// (e.g. stdin is not a terminal) or the user cancels.
 fn prompt_open_behavior() -> Option<cli::CliBehaviorSetting> {
     if !std::io::stdin().is_terminal() {
@@ -854,14 +854,17 @@ fn prompt_open_behavior() -> Option<cli::CliBehaviorSetting> {
     let items = [
         format!(
             "Add to existing Bex window ({})",
-            blue.apply_to("bex --existing")
+            blue.apply_to("bex-desktop --existing")
         ),
-        format!("Open a new window ({})", blue.apply_to("bex --classic")),
+        format!(
+            "Open a new window ({})",
+            blue.apply_to("bex-desktop --classic")
+        ),
     ];
 
     let prompt = format!(
         "Configure default behavior for {}\n{}",
-        blue.apply_to("bex <path>"),
+        blue.apply_to("bex-desktop <path>"),
         console::style("You can change this later in Bex settings"),
     );
 

@@ -83,12 +83,14 @@ linux() {
     # Remove the app directory
     rm -rf "$HOME/.local/bex$suffix.app"
 
-    # Remove the binary symlink
-    if [ -L "$HOME/.local/bin/bex" ]; then
-        case "$(readlink "$HOME/.local/bin/bex")" in
-            "$HOME/.local/bex$suffix.app/bin/"*) rm "$HOME/.local/bin/bex" ;;
-        esac
-    fi
+    # Remove the binary symlinks (`bex` is the pre-ADR002 legacy name)
+    for link in "$HOME/.local/bin/bex-desktop" "$HOME/.local/bin/bex"; do
+        if [ -L "$link" ]; then
+            case "$(readlink "$link")" in
+                "$HOME/.local/bex$suffix.app/bin/"*) rm "$link" ;;
+            esac
+        fi
+    done
 
     # Remove the .desktop file
     rm -f "$HOME/.local/share/applications/${appid}.desktop"
@@ -145,11 +147,13 @@ macos() {
         rm -rf "/Applications/$app"
     fi
 
-    # Remove the binary symlink
-    if [ -L "$HOME/.local/bin/bex" ] &&
-        [ "$(readlink "$HOME/.local/bin/bex")" = "/Applications/$app/Contents/MacOS/cli" ]; then
-        rm "$HOME/.local/bin/bex"
-    fi
+    # Remove the binary symlinks (`bex` is the pre-ADR002 legacy name)
+    for link in "$HOME/.local/bin/bex-desktop" "$HOME/.local/bin/bex"; do
+        if [ -L "$link" ] &&
+            [ "$(readlink "$link")" = "/Applications/$app/Contents/MacOS/cli" ]; then
+            rm "$link"
+        fi
+    done
 
     # Remove the database directory for this channel
     rm -rf "$HOME/Library/Application Support/Bex/db/0-$db_suffix"

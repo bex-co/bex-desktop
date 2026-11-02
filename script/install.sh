@@ -5,16 +5,32 @@ set -eu
 # into ~/.local/. If you'd prefer to do this manually, instructions are at
 # https://zed.dev/docs/linux.
 
+# The editor CLI is installed as `bex-desktop`; `bex` belongs to the bex
+# platform CLI (docs/adrs/ADR002-cli-command-bex-desktop.md).
 link_cli() {
-    destination="$HOME/.local/bin/bex"
+    destination="$HOME/.local/bin/bex-desktop"
     if [ -e "$destination" ] || [ -L "$destination" ]; then
-        if [ -L "$destination" ] && [ "$(readlink "$destination")" = "$1" ]; then
-            return
+        if [ ! -L "$destination" ] || [ "$(readlink "$destination")" != "$1" ]; then
+            echo "Existing command preserved at $destination. Bex CLI is available at $1"
         fi
-        echo "Existing command preserved at $destination. Bex CLI is available at $1"
-        return
+    else
+        ln -s "$1" "$destination"
     fi
-    ln -s "$1" "$destination"
+    migrate_legacy_cli
+}
+
+# TODO: remove a few releases after the bex-desktop rename (ADR002).
+# Removes ~/.local/bin/bex only when it is a symlink this script created;
+# anything else (e.g. the bex platform CLI) is left alone.
+migrate_legacy_cli() {
+    legacy="$HOME/.local/bin/bex"
+    [ -L "$legacy" ] || return 0
+    case "$(readlink "$legacy")" in
+        "$HOME"/.local/bex*.app/bin/bex | "$HOME"/.local/bex*.app/bin/cli | /Applications/Bex*.app/Contents/MacOS/cli)
+            rm "$legacy"
+            echo "Removed the old ~/.local/bin/bex link: the Bex editor command is now 'bex-desktop' ('bex edit <path>' from the bex platform CLI also works)."
+            ;;
+    esac
 }
 
 main() {
@@ -66,8 +82,8 @@ main() {
 
     "$platform" "$@"
 
-    if [ "$(command -v bex)" = "$HOME/.local/bin/bex" ]; then
-        echo "Bex has been installed. Run with 'bex'"
+    if [ "$(command -v bex-desktop)" = "$HOME/.local/bin/bex-desktop" ]; then
+        echo "Bex has been installed. Run with 'bex-desktop'"
     else
         echo "To run Bex from your terminal, you must add ~/.local/bin to your PATH"
         echo "Run:"
@@ -86,7 +102,7 @@ main() {
                 ;;
         esac
 
-        echo "To run Bex now, '~/.local/bin/bex'"
+        echo "To run Bex now, '~/.local/bin/bex-desktop'"
     fi
 }
 

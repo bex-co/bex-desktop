@@ -5,7 +5,7 @@ set -euxo pipefail
 if [[ $# -gt 0 ]]; then
   echo "
   Usage: ${0##*/}
-  Builds and installs Bex onto your system into ~/.local, making it available as ~/.local/bin/bex.
+  Builds and installs Bex onto your system into ~/.local, making it available as ~/.local/bin/bex-desktop.
 
   Before running this you should ensure you have all the build dependencies installed with `./script/linux`.
   "
