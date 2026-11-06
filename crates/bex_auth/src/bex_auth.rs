@@ -60,7 +60,8 @@ impl OidcConfig {
     /// (so a stock bex build resolves `https://oauth.bex.co`). Overrides:
     /// `BEX_OIDC_ISSUER`, `BEX_OIDC_CLIENT_ID`, `BEX_OIDC_SCOPES` (space-list).
     pub fn from_env(server_url: &str) -> Result<Self> {
-        let issuer = std::env::var("BEX_OIDC_ISSUER").unwrap_or_else(|_| default_issuer(server_url));
+        let issuer =
+            std::env::var("BEX_OIDC_ISSUER").unwrap_or_else(|_| default_issuer(server_url));
         let issuer = Url::parse(&issuer).context("invalid BEX_OIDC_ISSUER / server_url")?;
         let client_id =
             std::env::var("BEX_OIDC_CLIENT_ID").unwrap_or_else(|_| DEFAULT_CLIENT_ID.to_string());
@@ -94,6 +95,34 @@ fn default_issuer(server_url: &str) -> String {
         }
     }
     "https://oauth.bex.co".to_string()
+}
+
+/// The Cloud Agents MCP endpoint of the signed-in user's bex API
+/// (`https://bex.co` -> `https://api.bex.co/mcp/cloud-agents`). `BEX_API_URL`
+/// overrides the API base for staging and local stacks.
+pub fn cloud_agents_mcp_url(server_url: &str) -> Result<Url> {
+    let base = match std::env::var("BEX_API_URL") {
+        Ok(base) => base,
+        Err(_) => default_api_url(server_url)?,
+    };
+    let base = Url::parse(&base).context("invalid BEX_API_URL / server_url")?;
+    base.join("/mcp/cloud-agents")
+        .context("invalid bex API URL")
+}
+
+fn default_api_url(server_url: &str) -> Result<String> {
+    let url = Url::parse(server_url).context("invalid server_url")?;
+    let host = url.host_str().context("server_url has no host")?;
+    let host = if host.starts_with("api.") {
+        host.to_string()
+    } else {
+        format!("api.{host}")
+    };
+    let port = url
+        .port()
+        .map(|port| format!(":{port}"))
+        .unwrap_or_default();
+    Ok(format!("{}://{host}{port}", url.scheme()))
 }
 
 /// Tokens obtained from a successful sign-in.
@@ -192,18 +221,24 @@ pub async fn validate_token(
     config: &OidcConfig,
     access_token: &str,
 ) -> Result<bool> {
-    log::info!("bex_auth: validating token against {} userinfo", config.issuer);
+    log::info!(
+        "bex_auth: validating token against {} userinfo",
+        config.issuer
+    );
     let metadata = discover(&http, &config.issuer).await?;
-    let userinfo = metadata.userinfo_endpoint.unwrap_or_else(|| {
-        format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/'))
-    });
+    let userinfo = metadata
+        .userinfo_endpoint
+        .unwrap_or_else(|| format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/')));
     let request = Request::builder()
         .method(Method::GET)
         .uri(&userinfo)
         .header("Authorization", format!("Bearer {access_token}"))
         .header("Accept", "application/json")
         .body(AsyncBody::default())?;
-    let response = http.send(request).await.context("userinfo request failed")?;
+    let response = http
+        .send(request)
+        .await
+        .context("userinfo request failed")?;
     match response.status().as_u16() {
         200..=299 => Ok(true),
         401 | 403 => Ok(false),
@@ -218,16 +253,19 @@ pub async fn fetch_user(
     access_token: &str,
 ) -> Result<UserProfile> {
     let metadata = discover(&http, &config.issuer).await?;
-    let userinfo = metadata.userinfo_endpoint.unwrap_or_else(|| {
-        format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/'))
-    });
+    let userinfo = metadata
+        .userinfo_endpoint
+        .unwrap_or_else(|| format!("{}/userinfo", config.issuer.as_str().trim_end_matches('/')));
     let request = Request::builder()
         .method(Method::GET)
         .uri(&userinfo)
         .header("Authorization", format!("Bearer {access_token}"))
         .header("Accept", "application/json")
         .body(AsyncBody::default())?;
-    let mut response = http.send(request).await.context("userinfo request failed")?;
+    let mut response = http
+        .send(request)
+        .await
+        .context("userinfo request failed")?;
     let mut body = String::new();
     response.body_mut().read_to_string(&mut body).await?;
     if !response.status().is_success() {
@@ -437,6 +475,23 @@ mod tests {
     }
 
     #[test]
+    fn cloud_agents_url_follows_the_server_url() {
+        assert_eq!(
+            default_api_url("https://bex.co").ok().as_deref(),
+            Some("https://api.bex.co")
+        );
+        assert_eq!(
+            default_api_url("https://api.bex.co/").ok().as_deref(),
+            Some("https://api.bex.co")
+        );
+        assert_eq!(
+            default_api_url("http://localhost:8080").ok().as_deref(),
+            Some("http://api.localhost:8080")
+        );
+        assert!(default_api_url("not a url").is_err());
+    }
+
+    #[test]
     fn random_token_is_pkce_length() {
         // 32 bytes base64url (no pad) => 43 chars, within RFC 7636's 43-128 and
         // well over Hydra's 8-char minimum for `state`.
@@ -473,6 +528,9 @@ mod tests {
     fn default_issuer_prepends_oauth_subdomain() {
         assert_eq!(default_issuer("https://bex.co"), "https://oauth.bex.co");
         assert_eq!(default_issuer("https://bex.co/"), "https://oauth.bex.co");
-        assert_eq!(default_issuer("https://oauth.bex.co"), "https://oauth.bex.co");
+        assert_eq!(
+            default_issuer("https://oauth.bex.co"),
+            "https://oauth.bex.co"
+        );
     }
 }

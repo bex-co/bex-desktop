@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context as _, Result};
+use client::Client;
 use collections::{HashMap, HashSet};
 use context_server::oauth::{self, McpOAuthTokenProvider, OAuthDiscovery, OAuthSession};
 use context_server::transport::HttpTransport;
@@ -34,6 +35,76 @@ use crate::{
 /// Maximum timeout for context server requests
 /// Prevents extremely large timeout values from tying up resources indefinitely.
 const MAX_TIMEOUT_SECS: u64 = 600; // 10 minutes
+
+/// bex white-label: the built-in Cloud Agents MCP server (`/mcp/cloud-agents`),
+/// present while the user is signed in to bex. A user's own Stdio or HTTP
+/// definition under this id replaces it.
+pub const BEX_CLOUD_AGENTS_SERVER_ID: &str = "bex-cloud-agents";
+
+/// Authenticates the built-in Cloud Agents server with the signed-in bex
+/// session. The token is read on every request so sign-in, sign-out and a
+/// different account are followed without restarting the server, and it is
+/// never copied into settings or the keychain. The session carries no refresh
+/// token, so a rejected token surfaces as an auth error instead of a refresh.
+struct BexSessionTokenProvider {
+    client: Arc<Client>,
+}
+
+#[async_trait::async_trait]
+impl oauth::OAuthTokenProvider for BexSessionTokenProvider {
+    fn access_token(&self) -> Option<String> {
+        self.client.access_token()
+    }
+
+    async fn try_refresh(&self) -> Result<bool> {
+        Ok(false)
+    }
+}
+
+fn bex_cloud_agents_url(cx: &App) -> Option<url::Url> {
+    Client::try_global(cx)?.bex_cloud_agents_mcp_url(cx)
+}
+
+/// The bex client whose session authorizes `url`, only when `url` is the
+/// signed-in user's own Cloud Agents endpoint, so the bex token never reaches
+/// another host.
+fn bex_session_client_for(url: &url::Url, cx: &App) -> Option<Arc<Client>> {
+    let client = Client::try_global(cx)?;
+    (client.bex_cloud_agents_mcp_url(cx)? == *url).then_some(client)
+}
+
+fn is_bex_cloud_agents(id: &ContextServerId, cx: &App) -> bool {
+    id.0.as_ref() == BEX_CLOUD_AGENTS_SERVER_ID && bex_cloud_agents_url(cx).is_some()
+}
+
+/// Adds the built-in Cloud Agents server while signed in. The settings UI
+/// records a toggle on a server without its own entry as an `Extension` entry,
+/// so that shape only carries the user's enabled flag here.
+fn insert_bex_cloud_agents(
+    configured_servers: &mut HashMap<Arc<str>, ContextServerSettingsEntry>,
+    url: &url::Url,
+) {
+    let existing = configured_servers.get(BEX_CLOUD_AGENTS_SERVER_ID);
+    if existing
+        .is_some_and(|entry| !matches!(entry.settings, ContextServerSettings::Extension { .. }))
+    {
+        return;
+    }
+    let enabled = existing.is_none_or(|entry| entry.settings.enabled());
+    configured_servers.insert(
+        BEX_CLOUD_AGENTS_SERVER_ID.into(),
+        ContextServerSettingsEntry {
+            worktree_id: None,
+            settings: ContextServerSettings::Http {
+                enabled,
+                url: url.to_string(),
+                headers: HashMap::default(),
+                timeout: None,
+                oauth: None,
+            },
+        },
+    );
+}
 
 pub fn init(cx: &mut App) {
     extension::init(cx);
@@ -306,6 +377,7 @@ pub struct ContextServerStore {
     needs_server_update: bool,
     ai_disabled: bool,
     _subscriptions: Vec<Subscription>,
+    _bex_sign_in_watch: Option<Task<()>>,
 }
 
 pub struct ServerStatusChangedEvent {
@@ -506,6 +578,31 @@ impl ContextServerStore {
             }));
         }
 
+        let bex_sign_in_watch = maintain_server_loop
+            .then(|| Client::try_global(cx))
+            .flatten()
+            .map(|client| {
+                let mut status = client.status();
+                cx.spawn(async move |this, cx| {
+                    let mut signed_in = client.access_token().is_some();
+                    while status.next().await.is_some() {
+                        let now_signed_in = client.access_token().is_some();
+                        if now_signed_in == signed_in {
+                            continue;
+                        }
+                        signed_in = now_signed_in;
+                        let updated = this.update(cx, |this, cx| {
+                            if !DisableAiSettings::get_global(cx).disable_ai {
+                                this.available_context_servers_changed(cx);
+                            }
+                        });
+                        if updated.is_err() {
+                            break;
+                        }
+                    }
+                })
+            });
+
         let ai_disabled = DisableAiSettings::get_global(cx).disable_ai;
         let mut this = Self {
             state,
@@ -521,6 +618,7 @@ impl ContextServerStore {
             update_servers_task: None,
             context_server_factory,
             server_working_directories: HashMap::default(),
+            _bex_sign_in_watch: bex_sign_in_watch,
         };
         if maintain_server_loop && !DisableAiSettings::get_global(cx).disable_ai {
             this.available_context_servers_changed(cx);
@@ -567,6 +665,9 @@ impl ContextServerStore {
     /// configuration, so it stays correct even when a custom server is disabled
     /// or has not been started yet (in which case it has no runtime state).
     pub fn is_extension_provided(&self, id: &ContextServerId, cx: &App) -> bool {
+        if is_bex_cloud_agents(id, cx) {
+            return false;
+        }
         match self.settings_for_server(id) {
             Some(ContextServerSettings::Stdio { .. } | ContextServerSettings::Http { .. }) => false,
             Some(ContextServerSettings::Extension { .. }) => true,
@@ -587,11 +688,14 @@ impl ContextServerStore {
     pub fn is_server_enabled(&self, id: &ContextServerId, cx: &App) -> bool {
         match self.settings_for_server(id) {
             Some(settings) => settings.enabled(),
-            None => self
-                .registry
-                .read(cx)
-                .context_server_descriptor(&id.0)
-                .is_some(),
+            None => {
+                is_bex_cloud_agents(id, cx)
+                    || self
+                        .registry
+                        .read(cx)
+                        .context_server_descriptor(&id.0)
+                        .is_some()
+            }
         }
     }
 
@@ -991,6 +1095,8 @@ impl ContextServerStore {
             if let ContextServerConfiguration::Http { url, .. } = configuration.as_ref() {
                 if configuration.has_static_auth_header() {
                     None
+                } else if let Some(client) = cx.update(|cx| bex_session_client_for(url, cx)) {
+                    Some(Arc::new(BexSessionTokenProvider { client }))
                 } else {
                     let credentials_provider = cx.update(|cx| zed_credentials_provider::global(cx));
                     let http_client = cx.update(|cx| cx.http_client());
@@ -1757,6 +1863,9 @@ impl ContextServerStore {
                     settings: ContextServerSettings::default_extension(),
                 });
         }
+        if let Some(url) = this.update(cx, |_, cx| bex_cloud_agents_url(cx))? {
+            insert_bex_cloud_agents(&mut configured_servers, &url);
+        }
 
         let (enabled_servers, disabled_servers): (HashMap<_, _>, HashMap<_, _>) =
             configured_servers
@@ -2036,5 +2145,78 @@ async fn resolve_auth_required(
                 error: format!("OAuth discovery failed: {discovery_err}").into(),
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod bex_cloud_agents_tests {
+    use super::*;
+
+    fn cloud_agents_url() -> url::Url {
+        url::Url::parse("https://api.bex.co/mcp/cloud-agents").expect("valid url")
+    }
+
+    fn entry(settings: ContextServerSettings) -> ContextServerSettingsEntry {
+        ContextServerSettingsEntry {
+            worktree_id: None,
+            settings,
+        }
+    }
+
+    fn built_in(
+        configured_servers: &HashMap<Arc<str>, ContextServerSettingsEntry>,
+    ) -> Option<(bool, &str)> {
+        match &configured_servers.get(BEX_CLOUD_AGENTS_SERVER_ID)?.settings {
+            ContextServerSettings::Http { enabled, url, .. } => Some((*enabled, url.as_str())),
+            _ => None,
+        }
+    }
+
+    #[test]
+    fn signed_in_user_gets_the_built_in_server() {
+        let mut configured_servers = HashMap::default();
+        insert_bex_cloud_agents(&mut configured_servers, &cloud_agents_url());
+        assert_eq!(
+            built_in(&configured_servers),
+            Some((true, "https://api.bex.co/mcp/cloud-agents"))
+        );
+    }
+
+    #[test]
+    fn a_settings_toggle_keeps_its_enabled_flag() {
+        let mut configured_servers = HashMap::default();
+        configured_servers.insert(
+            BEX_CLOUD_AGENTS_SERVER_ID.into(),
+            entry(ContextServerSettings::Extension {
+                enabled: false,
+                remote: false,
+                settings: serde_json::json!({}),
+            }),
+        );
+        insert_bex_cloud_agents(&mut configured_servers, &cloud_agents_url());
+        assert_eq!(
+            built_in(&configured_servers),
+            Some((false, "https://api.bex.co/mcp/cloud-agents"))
+        );
+    }
+
+    #[test]
+    fn a_user_definition_replaces_the_built_in_server() {
+        let mut configured_servers = HashMap::default();
+        configured_servers.insert(
+            BEX_CLOUD_AGENTS_SERVER_ID.into(),
+            entry(ContextServerSettings::Http {
+                enabled: true,
+                url: "https://staging.example/mcp".to_string(),
+                headers: HashMap::default(),
+                timeout: None,
+                oauth: None,
+            }),
+        );
+        insert_bex_cloud_agents(&mut configured_servers, &cloud_agents_url());
+        assert_eq!(
+            built_in(&configured_servers),
+            Some((true, "https://staging.example/mcp"))
+        );
     }
 }

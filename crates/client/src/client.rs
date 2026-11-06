@@ -651,6 +651,11 @@ impl Client {
     pub fn global(cx: &App) -> Arc<Self> {
         cx.global::<GlobalClient>().0.clone()
     }
+
+    pub fn try_global(cx: &App) -> Option<Arc<Self>> {
+        cx.try_global::<GlobalClient>()
+            .map(|client| client.0.clone())
+    }
     pub fn set_global(client: Arc<Client>, cx: &mut App) {
         cx.set_global(GlobalClient(client))
     }
@@ -671,6 +676,13 @@ impl Client {
             .credentials
             .as_ref()
             .map(|credentials| credentials.access_token.clone())
+    }
+
+    /// bex white-label: the Cloud Agents MCP endpoint the signed-in user's
+    /// token authorizes, or `None` when signed out.
+    pub fn bex_cloud_agents_mcp_url(&self, cx: &App) -> Option<Url> {
+        self.access_token()?;
+        bex_auth::cloud_agents_mcp_url(&ClientSettings::get_global(cx).server_url).log_err()
     }
 
     pub fn peer_id(&self) -> Option<PeerId> {
